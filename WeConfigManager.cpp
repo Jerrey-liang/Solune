@@ -965,14 +965,14 @@ static ClassifyResult ClassifyByStats(const ClassifyFeatures& f)
 
     // No Both: resolve to Light or Dark
     if (tag == ThemeTag::Both)
-        tag = (f.globalAvg >= 0.36) ? ThemeTag::Light : ThemeTag::Dark;
+        tag = (f.globalAvg >= 0.44) ? ThemeTag::Light : ThemeTag::Dark;
 
     // Tray readability: globally bright with mixed tray pixels -> Dark
-    if (tag == ThemeTag::Light && f.globalAvg >= 0.48 && f.roiDarkRatio > 0.50)
+    if (tag == ThemeTag::Light && f.roiDarkRatio > 0.40)
         tag = ThemeTag::Dark;
 
-    // Borderline Dark with moderate global darkness -> Both
-    if (tag == ThemeTag::Dark && f.globalDarkRatio < 0.43 && f.roiAvg > 0.11 && f.roiDarkRatio < 0.67)
+    // Borderline Dark with moderate global darkness -> Both (then Light)
+    if (tag == ThemeTag::Dark && f.globalDarkRatio < 0.45 && f.roiAvg > 0.10 && f.roiDarkRatio < 0.70)
         tag = ThemeTag::Both;
 
     if (conf < 0.0) conf = 0.0;
@@ -2631,6 +2631,8 @@ static EvalTaskResult EvaluateWallpaperHeavy(std::wstring dictKey, std::wstring 
         std::wstring scheme;
         if (tryGetProjectJsonSchemecolor(pjPath, scheme))
             res.inferredTag = classifyFromSchemecolor(scheme, opt.minContrastDelta);
+            if (res.inferredTag == ThemeTag::Both)
+                res.inferredTag = ThemeTag::Light; // schemecolor Both -> Light
     }
 
     return res;
