@@ -1,5 +1,6 @@
 ﻿#include "Solune.h"
 #include "WeConfigManager.h"
+#include "StringConvert.h"
 
 #include <algorithm>
 #include <cmath>
@@ -28,21 +29,6 @@ static bool fileExists(const std::wstring& path)
 {
     const DWORD attr = GetFileAttributesW(path.c_str());
     return (attr != INVALID_FILE_ATTRIBUTES) && !(attr & FILE_ATTRIBUTE_DIRECTORY);
-}
-
-static std::wstring utf8ToWstring(const std::string& s)
-{
-    if (s.empty())
-        return {};
-    int len = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, s.c_str(), static_cast<int>(s.size()), nullptr, 0);
-    if (len <= 0)
-        len = MultiByteToWideChar(CP_ACP, 0, s.c_str(), static_cast<int>(s.size()), nullptr, 0);
-    if (len <= 0)
-        return {};
-    std::wstring out(static_cast<size_t>(len), L'\0');
-    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, s.c_str(), static_cast<int>(s.size()), out.data(), len) <= 0)
-        MultiByteToWideChar(CP_ACP, 0, s.c_str(), static_cast<int>(s.size()), out.data(), len);
-    return out;
 }
 
 namespace registry
@@ -406,7 +392,7 @@ static std::wstring unescapeVdfPath(std::string value)
             out.push_back(value[i]);
         }
     }
-    return normalizeWindowsPath(utf8ToWstring(out));
+    return normalizeWindowsPath(sts::WStringFromUtf8(out));
 }
 
 static void appendUniquePath(std::vector<std::wstring>& paths, std::unordered_set<std::wstring>& seen, std::wstring path)
@@ -691,7 +677,7 @@ void App::applyTheme(Theme targetTheme, bool switchWallpaper)
     bool launchedWe = false;
     if (switchWallpaper && !weExePath_.empty())
     {
-        const std::wstring playlistName = (targetTheme == Theme::Dark) ? L"Black_auto" : L"White_auto";
+        const std::wstring playlistName = (targetTheme == Theme::Dark) ? L"black_auto" : L"white_auto";
         launchedWe = launchWallpaperEngine(weExePath_, playlistName);
     }
 
@@ -795,6 +781,8 @@ void App::loop()
                     (expectedTheme == Theme::Light) ? sts::we::ThemeTag::Light : sts::we::ThemeTag::Dark;
 
                 sts::we::ApplyOptions opt;
+                opt.lightAutoPlaylistName = L"White";
+                opt.darkAutoPlaylistName = L"Black";
                 opt.configPath = configPathW_;
                 opt.workshopRoot431960 = workshopRoot;
                 opt.myProjectsRoot = myProjectsRoot;
@@ -806,20 +794,14 @@ void App::loop()
                 std::wcout << L"\n[同步] 检测到配置变更，开始静默同步用户壁纸..." << std::endl;
                 const sts::we::UpdateResult res = sts::we::ApplyAndSwitch(opt);
 
-                bool accentRepairNeeded = false;
-
                 if (res.changed)
                 {
                     std::wcout << L"[同步] 已完成配置回写与播放列表同步。" << std::endl;
-                    accentRepairNeeded = true;
                 }
 
-                if (accentRepairNeeded)
-                {
-                    // 等壁纸真正稳定后再修一次自动取色链路
-                    Sleep(1200);
-                    repairAccentColorAfterWallpaperSwitch();
-                }
+                // 用户可能在 WE 中手动切换了壁纸，无论播放列表是否变化，都强制 Windows 重新从当前壁纸取色
+                Sleep(1200);
+                repairAccentColorAfterWallpaperSwitch();
 
                 lastConfigWriteTime_ = getFileWriteTime(configPathW_);
             }
@@ -839,6 +821,8 @@ void App::loop()
                         (expectedTheme == Theme::Light) ? sts::we::ThemeTag::Light : sts::we::ThemeTag::Dark;
 
                     sts::we::ApplyOptions opt;
+                    opt.lightAutoPlaylistName = L"White";
+                    opt.darkAutoPlaylistName = L"Black";
                     opt.configPath = configPathW_;
                     opt.workshopRoot431960 = workshopRoot;
                     opt.myProjectsRoot = myProjectsRoot;
@@ -890,6 +874,8 @@ int App::run()
                 (expectedTheme == Theme::Light) ? sts::we::ThemeTag::Light : sts::we::ThemeTag::Dark;
 
             sts::we::ApplyOptions opt;
+            opt.lightAutoPlaylistName = L"white_auto";
+            opt.darkAutoPlaylistName = L"black_auto";
             opt.configPath = configPathW_;
             opt.workshopRoot431960 = (weDir.parent_path().parent_path() / "workshop" / "content" / "431960").wstring();
             opt.myProjectsRoot = (weDir / "projects" / "myprojects").wstring();

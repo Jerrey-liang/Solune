@@ -18,6 +18,9 @@
     <ClCompile Include="main.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="PkgParser.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
     <ClCompile Include="Solune.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
@@ -29,7 +32,13 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="PkgParser.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
     <ClInclude Include="Solune.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="StringConvert.h">
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="WeConfigManager.h">

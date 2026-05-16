@@ -113,6 +113,7 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -129,7 +130,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <AdditionalOptions>/Bv %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/utf-8 /Bv %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -144,6 +145,7 @@
   <ItemGroup>
     <ClCompile Include="lz4.c" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="PkgParser.cpp" />
     <ClCompile Include="Solune.cpp" />
     <ClCompile Include="WeConfigManager.cpp" />
   </ItemGroup>
@@ -152,7 +154,9 @@
   <ItemGroup>
     <ClInclude Include="bcdec.h" />
     <ClInclude Include="lz4.h" />
+    <ClInclude Include="PkgParser.h" />
     <ClInclude Include="Solune.h" />
+    <ClInclude Include="StringConvert.h" />
     <ClInclude Include="WeConfigManager.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

@@ -9,7 +9,7 @@
 /** 初始化 WinRT 环境并启动应用入口。 */
 int main()
 {
-    SetProcessDPIAware();
+    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
     const int stdoutModeResult = _setmode(_fileno(stdout), _O_U16TEXT);
