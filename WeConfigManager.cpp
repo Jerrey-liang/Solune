@@ -926,34 +926,58 @@ static void backupCleanConfig(const ApplyOptions& opt, const JsonObject& origina
 // 视觉核心：运算规则与色彩判定
 // ============================================================
 
-static ThemeTag ClassifyByStats(double roiAvg, double roiDarkRatio, double globalAvg, double globalDarkRatio)
+static ClassifyResult ClassifyByStats(const ClassifyFeatures& f)
 {
-    (void)globalDarkRatio;
+    ThemeTag tag = ThemeTag::Unknown;
+    double conf = 0.50;
 
-    // Windows 托盘文字可读性模型：Light 主题用黑字，Dark 主题用白字。
-    // 在线性 sRGB 亮度中，黑/白文字的理论对比度分界约为 0.179。
-    // 同时参考全局亮度：整体过亮但只有白字可读的壁纸不适合夜间自动切换，归入 Ignore。
-    if (globalAvg >= 0.48)
+    if (f.globalAvg >= 0.48)
     {
-        if (roiAvg <= 0.18 && roiDarkRatio >= 0.65)
-            return ThemeTag::Ignore;
-        return ThemeTag::Light;
+        if (f.roiAvg <= 0.22 && f.roiDarkRatio >= 0.60 && f.globalDarkRatio >= 0.22)
+        { tag = ThemeTag::Dark; conf = 0.82;
+            if (f.roiAvg <= 0.18 && f.roiDarkRatio >= 0.65) { tag = ThemeTag::Ignore; conf = 0.85; } }
+        else { tag = ThemeTag::Light; conf = 0.90; }
     }
+    else if (f.globalDarkRatio >= 0.50 && f.globalAvg <= 0.30 && (f.roiDarkRatio >= 0.22 || f.roiAvg <= 0.34))
+    { tag = ThemeTag::Dark; conf = 0.88; }
+    else if (f.globalAvg >= 0.22 && f.globalAvg <= 0.40 && f.globalDarkRatio >= 0.35 && f.globalDarkRatio <= 0.55 &&
+             f.roiAvg >= 0.35 && f.roiDarkRatio <= 0.25)
+    { tag = ThemeTag::Both; conf = 0.75; }
+    else if (f.globalAvg >= 0.28 && f.roiAvg >= 0.26 && f.roiDarkRatio <= 0.35)
+    {
+        if (f.globalDarkRatio >= 0.42 && f.globalAvg <= 0.35) { tag = ThemeTag::Both; conf = 0.72; }
+        else { tag = ThemeTag::Light; conf = 0.82; }
+    }
+    else if (f.globalAvg >= 0.25 && f.globalAvg <= 0.42 && f.roiAvg >= 0.16 && f.roiAvg <= 0.29 &&
+             f.roiDarkRatio <= 0.55)
+    { tag = ThemeTag::Both; conf = 0.68; }
+    else if (f.roiDarkRatio >= 0.68 && f.roiAvg < 0.25)
+    { tag = ThemeTag::Dark; conf = 0.62; }
+    else if (f.roiAvg >= 0.16)
+    {
+        if (f.globalDarkRatio >= 0.48 && f.globalAvg <= 0.30) { tag = ThemeTag::Both; conf = 0.70; }
+        else { tag = ThemeTag::Light; conf = 0.60; }
+    }
+    else if (f.roiAvg <= 0.10)
+    { tag = ThemeTag::Dark; conf = 0.55; }
+    else
+    { tag = ThemeTag::Both; conf = 0.50; }
 
-    if (globalAvg >= 0.28 && roiAvg >= 0.26 && roiDarkRatio <= 0.35)
-        return ThemeTag::Light;
+    // No Both: resolve to Light or Dark
+    if (tag == ThemeTag::Both)
+        tag = (f.globalAvg >= 0.36) ? ThemeTag::Light : ThemeTag::Dark;
 
-    if (globalAvg >= 0.25 && globalAvg <= 0.42 && roiAvg >= 0.16 && roiAvg <= 0.29 && roiDarkRatio <= 0.55)
-        return ThemeTag::Both;
+    // Tray readability: globally bright with mixed tray pixels -> Dark
+    if (tag == ThemeTag::Light && f.globalAvg >= 0.48 && f.roiDarkRatio > 0.50)
+        tag = ThemeTag::Dark;
 
-    // 给分界两侧留一点缓冲，其余模棱两可的图进 Both。
-    if (roiDarkRatio >= 0.45 && roiAvg < 0.36)
-        return ThemeTag::Dark;
-    if (roiAvg >= 0.205)
-        return ThemeTag::Light;
-    if (roiAvg <= 0.155)
-        return ThemeTag::Dark;
-    return ThemeTag::Both;
+    // Borderline Dark with moderate global darkness -> Both
+    if (tag == ThemeTag::Dark && f.globalDarkRatio < 0.43 && f.roiAvg > 0.11 && f.roiDarkRatio < 0.67)
+        tag = ThemeTag::Both;
+
+    if (conf < 0.0) conf = 0.0;
+    if (conf > 1.0) conf = 1.0;
+    return {tag, conf};
 }
 
 static double rgbToLinearLuminance(uint8_t r, uint8_t g, uint8_t b)
@@ -1473,7 +1497,7 @@ static ThemeTag evaluateL2TrayRoi(const std::wstring& wallpaperDir, const ApplyO
     double globalAvg = 0.0, globalDarkRatio = 0.0;
     calcImageRoiStatsWIC(previewPath, 1.0, 1.0, globalAvg, globalDarkRatio);
 
-    return ClassifyByStats(roiAvg, roiDarkRatio, globalAvg, globalDarkRatio);
+    { ClassifyFeatures _f; _f.roiAvg=roiAvg; _f.roiDarkRatio=roiDarkRatio; _f.globalAvg=globalAvg; _f.globalDarkRatio=globalDarkRatio; auto _cr=ClassifyByStats(_f); return _cr.tag; }
 }
 
 // 进程与其他辅助工具实现
@@ -2076,7 +2100,18 @@ static bool parseVfsJson(const PkgParser& parser, const std::string& path, JsonO
     const auto& vfs = parser.GetVFS();
     auto it = vfs.find(path);
     if (it == vfs.end())
+    {
+        std::wstring targetW = sts::WStringFromUtf8(path);
+        for (const auto& [vp, sp] : vfs)
+        {
+            if (sts::WStringFromUtf8(vp) == targetW)
+            {
+                std::string text(reinterpret_cast<const char*>(sp.data), sp.size);
+                return JsonObject::TryParse(winrt::to_hstring(text), out);
+            }
+        }
         return false;
+    }
     const MemSpan span = it->second;
     std::string text(reinterpret_cast<const char*>(span.data), span.size);
     return JsonObject::TryParse(winrt::to_hstring(text), out);
@@ -2120,6 +2155,21 @@ static bool resolveTexturePath(const PkgParser& parser, const std::string& mater
         if (path.size() >= suffix.size() && path.compare(path.size() - suffix.size(), suffix.size(), suffix) == 0)
         {
             outPath = path;
+            return true;
+        }
+    }
+
+    // Wide-string fallback for Unicode normalization mismatches
+    std::wstring texW = textureName;
+    if (texW.size() < 4 || texW.substr(texW.size() - 4) != L".tex")
+        texW += L".tex";
+    for (const auto& [vp, sp] : vfs)
+    {
+        (void)sp;
+        std::wstring vW = sts::WStringFromUtf8(vp);
+        if (vW.size() >= texW.size() && vW.compare(vW.size() - texW.size(), texW.size(), texW) == 0)
+        {
+            outPath = vp;
             return true;
         }
     }
@@ -2508,7 +2558,7 @@ static EvalTaskResult EvaluateWallpaperHeavy(std::wstring dictKey, std::wstring 
         if (calcVideoRoiStatsMF(canonicalKey, opt.trayRoiWidthPct, opt.trayRoiHeightPct, alignment, rAvg, rDark, gAvg,
                                 gDark))
         {
-            res.inferredTag = ClassifyByStats(rAvg, rDark, gAvg, gDark);
+            { ClassifyFeatures _f; _f.roiAvg=rAvg; _f.roiDarkRatio=rDark; _f.globalAvg=gAvg; _f.globalDarkRatio=gDark; auto _cr=ClassifyByStats(_f); res.inferredTag=_cr.tag; }
             res.mfUsed = true;
             res.alignmentApplied = alignment.custom;
             return res;
@@ -2533,7 +2583,7 @@ static EvalTaskResult EvaluateWallpaperHeavy(std::wstring dictKey, std::wstring 
                 if (calcSceneCompositeStatsFromPkg(parser, opt.trayRoiWidthPct, opt.trayRoiHeightPct, alignment, rAvg,
                                                    rDark, gAvg, gDark, decodeSummary))
                 {
-                    res.inferredTag = ClassifyByStats(rAvg, rDark, gAvg, gDark);
+                    { ClassifyFeatures _f; _f.roiAvg=rAvg; _f.roiDarkRatio=rDark; _f.globalAvg=gAvg; _f.globalDarkRatio=gDark; auto _cr=ClassifyByStats(_f); res.inferredTag=_cr.tag; }
                     res.pkgParsed = true;
                     res.pkgSceneComposite = true;
                     res.alignmentApplied = alignment.custom;
@@ -2555,7 +2605,7 @@ static EvalTaskResult EvaluateWallpaperHeavy(std::wstring dictKey, std::wstring 
                                  calcRgbaRoiStatsAligned(img, opt.trayRoiWidthPct, opt.trayRoiHeightPct, alignment,
                                                          rAvg, rDark, gAvg, gDark)))
                             {
-                                res.inferredTag = ClassifyByStats(rAvg, rDark, gAvg, gDark);
+                                { ClassifyFeatures _f; _f.roiAvg=rAvg; _f.roiDarkRatio=rDark; _f.globalAvg=gAvg; _f.globalDarkRatio=gDark; auto _cr=ClassifyByStats(_f); res.inferredTag=_cr.tag; }
                                 res.pkgParsed = true; // 亮起硬解成功指示灯
                                 res.alignmentApplied = alignment.custom;
                                 res.pkgDecodeFormat = img.decodeFormat;
