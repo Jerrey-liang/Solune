@@ -19,16 +19,15 @@
 #include <string_view>
 #include <thread>
 
-
 #include <PropIdl.h>
-#include <array>
 #include <algorithm>
-#include <cstddef>
+#include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdlib>
 #include <fstream>
-#include <iostream>
 #include <iomanip>
+#include <iostream>
 #include <mfapi.h>
 #include <mferror.h>
 #include <mfidl.h>
@@ -42,7 +41,6 @@
 #pragma comment(lib, "mfplat.lib")
 #pragma comment(lib, "mfreadwrite.lib")
 #pragma comment(lib, "mfuuid.lib")
-
 
 namespace sts::we
 {
@@ -562,7 +560,8 @@ static void getPrimaryDisplaySize(double fallbackW, double fallbackH, double& ou
     }
 }
 
-static WallpaperPlacement makeWallpaperPlacement(double sourceW, double sourceH, const WallpaperAlignmentSettings& align)
+static WallpaperPlacement makeWallpaperPlacement(double sourceW, double sourceH,
+                                                 const WallpaperAlignmentSettings& align)
 {
     WallpaperPlacement p;
     p.sourceW = sourceW;
@@ -627,7 +626,8 @@ static WallpaperPlacement makeWallpaperPlacement(double sourceW, double sourceH,
     return p;
 }
 
-static bool mapDisplayToSource(const WallpaperPlacement& p, double displayX, double displayY, double& outX, double& outY)
+static bool mapDisplayToSource(const WallpaperPlacement& p, double displayX, double displayY, double& outX,
+                               double& outY)
 {
     if (p.sourceW <= 0.0 || p.sourceH <= 0.0 || p.displayW <= 0.0 || p.displayH <= 0.0)
         return false;
@@ -667,13 +667,14 @@ static bool tryGetSelectedWallpaperFile(JsonObject const& general, std::wstring&
 }
 static bool isProfileObject(JsonObject const& candidate, JsonObject& outGeneral, JsonObject& outWprops)
 {
-    return jsonTryGetObject(candidate, L"general", outGeneral) && jsonTryGetObject(candidate, L"wproperties", outWprops);
+    return jsonTryGetObject(candidate, L"general", outGeneral) &&
+           jsonTryGetObject(candidate, L"wproperties", outWprops);
 }
 static bool tryGetExplicitProfileKey(JsonObject const& root, std::wstring& out)
 {
     static constexpr const wchar_t* kProfileKeys[] = {
         L"?selectedprofile", L"?selectedprofilekey", L"?activeprofile", L"?currentprofile",
-        L"selectedprofile",  L"activeprofile",       L"currentprofile",  L"profile"};
+        L"selectedprofile",  L"activeprofile",       L"currentprofile", L"profile"};
 
     for (const wchar_t* key : kProfileKeys)
     {
@@ -934,34 +935,79 @@ static ClassifyResult ClassifyByStats(const ClassifyFeatures& f)
     if (f.globalAvg >= 0.48)
     {
         if (f.roiAvg <= 0.22 && f.roiDarkRatio >= 0.60 && f.globalDarkRatio >= 0.22)
-        { tag = ThemeTag::Dark; conf = 0.82;
-            if (f.roiAvg <= 0.18 && f.roiDarkRatio >= 0.65) { tag = ThemeTag::Ignore; conf = 0.85; } }
-        else { tag = ThemeTag::Light; conf = 0.90; }
+        {
+            tag = ThemeTag::Dark;
+            conf = 0.82;
+            if (f.roiAvg <= 0.18 && f.roiDarkRatio >= 0.65)
+            {
+                tag = ThemeTag::Ignore;
+                conf = 0.85;
+            }
+        }
+        else
+        {
+            tag = ThemeTag::Light;
+            conf = 0.90;
+        }
     }
     else if (f.globalDarkRatio >= 0.50 && f.globalAvg <= 0.30 && (f.roiDarkRatio >= 0.22 || f.roiAvg <= 0.34))
-    { tag = ThemeTag::Dark; conf = 0.88; }
+    {
+        tag = ThemeTag::Dark;
+        conf = 0.88;
+    }
     else if (f.globalAvg >= 0.22 && f.globalAvg <= 0.40 && f.globalDarkRatio >= 0.35 && f.globalDarkRatio <= 0.55 &&
              f.roiAvg >= 0.35 && f.roiDarkRatio <= 0.25)
-    { tag = ThemeTag::Both; conf = 0.75; }
+    {
+        tag = ThemeTag::Both;
+        conf = 0.75;
+    }
     else if (f.globalAvg >= 0.28 && f.roiAvg >= 0.26 && f.roiDarkRatio <= 0.35)
     {
-        if (f.globalDarkRatio >= 0.42 && f.globalAvg <= 0.35) { tag = ThemeTag::Both; conf = 0.72; }
-        else { tag = ThemeTag::Light; conf = 0.82; }
+        if (f.globalDarkRatio >= 0.42 && f.globalAvg <= 0.35)
+        {
+            tag = ThemeTag::Both;
+            conf = 0.72;
+        }
+        else
+        {
+            tag = ThemeTag::Light;
+            conf = 0.82;
+        }
     }
     else if (f.globalAvg >= 0.25 && f.globalAvg <= 0.42 && f.roiAvg >= 0.16 && f.roiAvg <= 0.29 &&
              f.roiDarkRatio <= 0.55)
-    { tag = ThemeTag::Both; conf = 0.68; }
+    {
+        tag = ThemeTag::Both;
+        conf = 0.68;
+    }
     else if (f.roiDarkRatio >= 0.68 && f.roiAvg < 0.25)
-    { tag = ThemeTag::Dark; conf = 0.62; }
+    {
+        tag = ThemeTag::Dark;
+        conf = 0.62;
+    }
     else if (f.roiAvg >= 0.16)
     {
-        if (f.globalDarkRatio >= 0.48 && f.globalAvg <= 0.30) { tag = ThemeTag::Both; conf = 0.70; }
-        else { tag = ThemeTag::Light; conf = 0.60; }
+        if (f.globalDarkRatio >= 0.48 && f.globalAvg <= 0.30)
+        {
+            tag = ThemeTag::Both;
+            conf = 0.70;
+        }
+        else
+        {
+            tag = ThemeTag::Light;
+            conf = 0.60;
+        }
     }
     else if (f.roiAvg <= 0.10)
-    { tag = ThemeTag::Dark; conf = 0.55; }
+    {
+        tag = ThemeTag::Dark;
+        conf = 0.55;
+    }
     else
-    { tag = ThemeTag::Both; conf = 0.50; }
+    {
+        tag = ThemeTag::Both;
+        conf = 0.50;
+    }
 
     // No Both: resolve to Light or Dark
     if (tag == ThemeTag::Both)
@@ -975,8 +1021,10 @@ static ClassifyResult ClassifyByStats(const ClassifyFeatures& f)
     if (tag == ThemeTag::Dark && f.globalDarkRatio < 0.45 && f.roiAvg > 0.10 && f.roiDarkRatio < 0.70)
         tag = ThemeTag::Both;
 
-    if (conf < 0.0) conf = 0.0;
-    if (conf > 1.0) conf = 1.0;
+    if (conf < 0.0)
+        conf = 0.0;
+    if (conf > 1.0)
+        conf = 1.0;
     return {tag, conf};
 }
 
@@ -987,8 +1035,8 @@ static double rgbToLinearLuminance(uint8_t r, uint8_t g, uint8_t b)
 }
 
 static bool calcRgbaRoiStatsAligned(const PkgParser::RgbaImage& img, double wPct, double hPct,
-                                    const WallpaperAlignmentSettings& alignment, double& outRoiAvg,
-                                    double& outRoiDark, double& outGlobalAvg, double& outGlobalDark)
+                                    const WallpaperAlignmentSettings& alignment, double& outRoiAvg, double& outRoiDark,
+                                    double& outGlobalAvg, double& outGlobalDark)
 {
     if (!img.IsValid() || img.width <= 0 || img.height <= 0)
         return false;
@@ -1150,8 +1198,8 @@ static bool calcImageRoiStatsWICAligned(const std::wstring& imagePath, double wP
     winrt::com_ptr<IWICFormatConverter> converter;
     if (FAILED(factory->CreateFormatConverter(converter.put())))
         return false;
-    if (FAILED(converter->Initialize(frame.get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr,
-                                     0.0, WICBitmapPaletteTypeCustom)))
+    if (FAILED(converter->Initialize(frame.get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr, 0.0,
+                                     WICBitmapPaletteTypeCustom)))
         return false;
 
     const size_t pixelCount = static_cast<size_t>(w) * static_cast<size_t>(h);
@@ -1159,7 +1207,8 @@ static bool calcImageRoiStatsWICAligned(const std::wstring& imagePath, double wP
     if (FAILED(converter->CopyPixels(nullptr, w * 4, static_cast<UINT>(pixels.size()), pixels.data())))
         return false;
 
-    const WallpaperPlacement placement = makeWallpaperPlacement(static_cast<double>(w), static_cast<double>(h), alignment);
+    const WallpaperPlacement placement =
+        makeWallpaperPlacement(static_cast<double>(w), static_cast<double>(h), alignment);
     const int displayW = (std::max)(1, static_cast<int>(placement.displayW + 0.5));
     const int displayH = (std::max)(1, static_cast<int>(placement.displayH + 0.5));
     const int roiW = (std::max)(1, static_cast<int>(placement.displayW * wPct));
@@ -1403,8 +1452,7 @@ static bool tryGetProjectJsonSchemecolor(const std::wstring& pj, std::wstring& o
     if (jsonTryGetObject(gen, L"properties", props))
     {
         JsonObject schemeObj;
-        if (jsonTryGetObject(props, L"schemecolor", schemeObj) &&
-            jsonTryGetString(schemeObj, L"value", outScheme))
+        if (jsonTryGetObject(props, L"schemecolor", schemeObj) && jsonTryGetString(schemeObj, L"value", outScheme))
             return true;
     }
 
@@ -1497,7 +1545,15 @@ static ThemeTag evaluateL2TrayRoi(const std::wstring& wallpaperDir, const ApplyO
     double globalAvg = 0.0, globalDarkRatio = 0.0;
     calcImageRoiStatsWIC(previewPath, 1.0, 1.0, globalAvg, globalDarkRatio);
 
-    { ClassifyFeatures _f; _f.roiAvg=roiAvg; _f.roiDarkRatio=roiDarkRatio; _f.globalAvg=globalAvg; _f.globalDarkRatio=globalDarkRatio; auto _cr=ClassifyByStats(_f); return _cr.tag; }
+    {
+        ClassifyFeatures _f;
+        _f.roiAvg = roiAvg;
+        _f.roiDarkRatio = roiDarkRatio;
+        _f.globalAvg = globalAvg;
+        _f.globalDarkRatio = globalDarkRatio;
+        auto _cr = ClassifyByStats(_f);
+        return _cr.tag;
+    }
 }
 
 // 进程与其他辅助工具实现
@@ -1818,8 +1874,7 @@ static bool ensureAndGetPlaylists(JsonObject& general, JsonArray& outPlaylists, 
 static bool tryGetSelectedMonitor0(JsonObject const& general, JsonObject& outMonitor0)
 {
     JsonObject wc, selected;
-    return jsonTryGetObject(general, L"wallpaperconfig", wc) &&
-           jsonTryGetObject(wc, L"selectedwallpapers", selected) &&
+    return jsonTryGetObject(general, L"wallpaperconfig", wc) && jsonTryGetObject(wc, L"selectedwallpapers", selected) &&
            jsonTryGetObject(selected, L"Monitor0", outMonitor0);
 }
 static bool tryGetActivePlaylist(JsonObject const& general, JsonArray const& playlists, JsonObject& outPlaylist,
@@ -2558,7 +2613,15 @@ static EvalTaskResult EvaluateWallpaperHeavy(std::wstring dictKey, std::wstring 
         if (calcVideoRoiStatsMF(canonicalKey, opt.trayRoiWidthPct, opt.trayRoiHeightPct, alignment, rAvg, rDark, gAvg,
                                 gDark))
         {
-            { ClassifyFeatures _f; _f.roiAvg=rAvg; _f.roiDarkRatio=rDark; _f.globalAvg=gAvg; _f.globalDarkRatio=gDark; auto _cr=ClassifyByStats(_f); res.inferredTag=_cr.tag; }
+            {
+                ClassifyFeatures _f;
+                _f.roiAvg = rAvg;
+                _f.roiDarkRatio = rDark;
+                _f.globalAvg = gAvg;
+                _f.globalDarkRatio = gDark;
+                auto _cr = ClassifyByStats(_f);
+                res.inferredTag = _cr.tag;
+            }
             res.mfUsed = true;
             res.alignmentApplied = alignment.custom;
             return res;
@@ -2583,7 +2646,15 @@ static EvalTaskResult EvaluateWallpaperHeavy(std::wstring dictKey, std::wstring 
                 if (calcSceneCompositeStatsFromPkg(parser, opt.trayRoiWidthPct, opt.trayRoiHeightPct, alignment, rAvg,
                                                    rDark, gAvg, gDark, decodeSummary))
                 {
-                    { ClassifyFeatures _f; _f.roiAvg=rAvg; _f.roiDarkRatio=rDark; _f.globalAvg=gAvg; _f.globalDarkRatio=gDark; auto _cr=ClassifyByStats(_f); res.inferredTag=_cr.tag; }
+                    {
+                        ClassifyFeatures _f;
+                        _f.roiAvg = rAvg;
+                        _f.roiDarkRatio = rDark;
+                        _f.globalAvg = gAvg;
+                        _f.globalDarkRatio = gDark;
+                        auto _cr = ClassifyByStats(_f);
+                        res.inferredTag = _cr.tag;
+                    }
                     res.pkgParsed = true;
                     res.pkgSceneComposite = true;
                     res.alignmentApplied = alignment.custom;
@@ -2605,7 +2676,15 @@ static EvalTaskResult EvaluateWallpaperHeavy(std::wstring dictKey, std::wstring 
                                  calcRgbaRoiStatsAligned(img, opt.trayRoiWidthPct, opt.trayRoiHeightPct, alignment,
                                                          rAvg, rDark, gAvg, gDark)))
                             {
-                                { ClassifyFeatures _f; _f.roiAvg=rAvg; _f.roiDarkRatio=rDark; _f.globalAvg=gAvg; _f.globalDarkRatio=gDark; auto _cr=ClassifyByStats(_f); res.inferredTag=_cr.tag; }
+                                {
+                                    ClassifyFeatures _f;
+                                    _f.roiAvg = rAvg;
+                                    _f.roiDarkRatio = rDark;
+                                    _f.globalAvg = gAvg;
+                                    _f.globalDarkRatio = gDark;
+                                    auto _cr = ClassifyByStats(_f);
+                                    res.inferredTag = _cr.tag;
+                                }
                                 res.pkgParsed = true; // 亮起硬解成功指示灯
                                 res.alignmentApplied = alignment.custom;
                                 res.pkgDecodeFormat = img.decodeFormat;
@@ -2631,8 +2710,8 @@ static EvalTaskResult EvaluateWallpaperHeavy(std::wstring dictKey, std::wstring 
         std::wstring scheme;
         if (tryGetProjectJsonSchemecolor(pjPath, scheme))
             res.inferredTag = classifyFromSchemecolor(scheme, opt.minContrastDelta);
-            if (res.inferredTag == ThemeTag::Both)
-                res.inferredTag = ThemeTag::Light; // schemecolor Both -> Light
+        if (res.inferredTag == ThemeTag::Both)
+            res.inferredTag = ThemeTag::Light; // schemecolor Both -> Light
     }
 
     return res;
@@ -2891,7 +2970,8 @@ UpdateResult ApplyAndSwitch(const ApplyOptions& opt)
                 if (!samePathKey(exactResolvedKey, rawKey))
                 {
                     auto targetVal = wprops.GetNamedValue(exactResolvedKey);
-                    if (sourceVal.ValueType() == JsonValueType::Object && targetVal.ValueType() == JsonValueType::Object)
+                    if (sourceVal.ValueType() == JsonValueType::Object &&
+                        targetVal.ValueType() == JsonValueType::Object)
                     {
                         JsonObject sourceEntry = sourceVal.GetObject();
                         JsonObject targetEntry = targetVal.GetObject();
@@ -2931,8 +3011,8 @@ UpdateResult ApplyAndSwitch(const ApplyOptions& opt)
                 auto nameSlash = resolvedName.find_last_of(L'/');
                 if (nameSlash != std::wstring::npos)
                     resolvedName = resolvedName.substr(nameSlash + 1);
-                std::wcout << L"  [真实文件修正] 壁纸ID: " << resolvedWpId << L" -> 使用实际文件 "
-                           << resolvedName << std::endl;
+                std::wcout << L"  [真实文件修正] 壁纸ID: " << resolvedWpId << L" -> 使用实际文件 " << resolvedName
+                           << std::endl;
             }
 
             wallpaperKey = resolvedKey;
@@ -2960,10 +3040,10 @@ UpdateResult ApplyAndSwitch(const ApplyOptions& opt)
         // --- 【新增第二处】侦测用户手动修改：移动或踢出 ---
         const std::wstring wallpaperCompareKey = canonicalPathCompareKey(wallpaperKey);
         const std::wstring wallpaperDirCompareKey = canonicalPathCompareKey(getWallpaperDir(wallpaperKey));
-        bool inLight = currentLightSet.count(wallpaperCompareKey) > 0 ||
-                       currentLightDirSet.count(wallpaperDirCompareKey) > 0;
-        bool inDark = currentDarkSet.count(wallpaperCompareKey) > 0 ||
-                      currentDarkDirSet.count(wallpaperDirCompareKey) > 0;
+        bool inLight =
+            currentLightSet.count(wallpaperCompareKey) > 0 || currentLightDirSet.count(wallpaperDirCompareKey) > 0;
+        bool inDark =
+            currentDarkSet.count(wallpaperCompareKey) > 0 || currentDarkDirSet.count(wallpaperDirCompareKey) > 0;
 
         // --- 【新增1】读取是否已有免死金牌 ---
         bool userOverridden = false;
@@ -3104,9 +3184,8 @@ UpdateResult ApplyAndSwitch(const ApplyOptions& opt)
         {
             const size_t localIdx = j - i;
             const auto& task = pendingTasks[j];
-            batchResults[localIdx] =
-                EvaluateWallpaperHeavy(task.rawKey, task.canonicalKey, task.wpId, task.pjPath, task.isNew, opt,
-                                       task.alignment);
+            batchResults[localIdx] = EvaluateWallpaperHeavy(task.rawKey, task.canonicalKey, task.wpId, task.pjPath,
+                                                            task.isNew, opt, task.alignment);
         }
         // =========================================================
         // 【终极修复 2】击碎 Windows 系统的“文件缓存假象”！
@@ -3188,9 +3267,8 @@ UpdateResult ApplyAndSwitch(const ApplyOptions& opt)
     if (opt.desiredTheme == ThemeTag::Light || opt.desiredTheme == ThemeTag::Dark)
     {
         std::wstring target = (opt.desiredTheme == ThemeTag::Light) ? lightAuto : darkAuto;
-        const bool activeSuitable =
-            isActivePlaylistSuitableForTheme(general, playlists, opt.desiredTheme, lightAuto, darkAuto, lightItems,
-                                             darkItems);
+        const bool activeSuitable = isActivePlaylistSuitableForTheme(general, playlists, opt.desiredTheme, lightAuto,
+                                                                     darkAuto, lightItems, darkItems);
         r.activePlaylistAlreadySuitable = activeSuitable;
 
         if (opt.preserveActivePlaylistWhenSuitable && activeSuitable)
@@ -3198,8 +3276,8 @@ UpdateResult ApplyAndSwitch(const ApplyOptions& opt)
             r.activePlaylistPreserved = true;
             if (opt.printDiagnostics)
             {
-                std::wcout << L"  [启动保护] 当前播放列表已满足 "
-                           << ThemeTagToString(opt.desiredTheme) << L" 主题，跳过播放列表切换。" << std::endl;
+                std::wcout << L"  [启动保护] 当前播放列表已满足 " << ThemeTagToString(opt.desiredTheme)
+                           << L" 主题，跳过播放列表切换。" << std::endl;
             }
         }
         else
