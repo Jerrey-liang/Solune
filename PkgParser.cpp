@@ -8,6 +8,8 @@
 #include <winrt/Windows.Foundation.h>
 #include <winrt/base.h>
 
+#include <wincodec.h>
+
 #include "lz4.h"
 #include <cstring>
 #include <string_view>
@@ -23,6 +25,8 @@
 #include <vector>
 
 #include "StringConvert.h"
+
+#pragma comment(lib, "Windowscodecs.lib")
 
 static uint32_t ReadLeU32(const uint8_t* ptr)
 {
@@ -50,6 +54,56 @@ static const wchar_t* TexFormatName(int32_t format)
         default:
             return L"Unsupported";
     }
+}
+
+static bool DecodeEmbeddedImageBytesToRgba(const uint8_t* data, size_t size, int& outWidth, int& outHeight,
+                                           std::vector<uint8_t>& outPixels)
+{
+    outWidth = 0;
+    outHeight = 0;
+    outPixels.clear();
+    if (!data || size == 0)
+        return false;
+
+    winrt::com_ptr<IWICImagingFactory> factory;
+    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory))))
+        return false;
+
+    winrt::com_ptr<IWICStream> stream;
+    if (FAILED(factory->CreateStream(stream.put())))
+        return false;
+    if (FAILED(stream->InitializeFromMemory(const_cast<BYTE*>(data), static_cast<DWORD>(size))))
+        return false;
+
+    winrt::com_ptr<IWICBitmapDecoder> decoder;
+    if (FAILED(factory->CreateDecoderFromStream(stream.get(), nullptr, WICDecodeMetadataCacheOnDemand, decoder.put())))
+        return false;
+
+    winrt::com_ptr<IWICBitmapFrameDecode> frame;
+    if (FAILED(decoder->GetFrame(0, frame.put())))
+        return false;
+
+    UINT w = 0, h = 0;
+    if (FAILED(frame->GetSize(&w, &h)) || w == 0 || h == 0)
+        return false;
+
+    winrt::com_ptr<IWICFormatConverter> converter;
+    if (FAILED(factory->CreateFormatConverter(converter.put())))
+        return false;
+    if (FAILED(converter->Initialize(frame.get(), GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, nullptr, 0.0,
+                                     WICBitmapPaletteTypeCustom)))
+        return false;
+
+    const size_t pixelBytes = static_cast<size_t>(w) * static_cast<size_t>(h) * 4u;
+    outPixels.resize(pixelBytes);
+    if (FAILED(converter->CopyPixels(nullptr, w * 4, static_cast<UINT>(pixelBytes), outPixels.data())))
+    {
+        outPixels.clear();
+        return false;
+    }
+    outWidth = static_cast<int>(w);
+    outHeight = static_cast<int>(h);
+    return true;
 }
 
 PkgParser::PkgParser() = default;
@@ -503,6 +557,29 @@ PkgParser::RgbaImage PkgParser::DecodeTexvToRGBA(const MemSpan& texSpan) const
 
     if (header->format == 0)
     {
+        // 部分 format=0 (RGBA8888) 纹理在 TEXB 容器内并不存储裸像素，
+        // 而是直接嵌入 PNG / JPEG 字节流。先按魔数识别，再用 WIC 解码。
+        const bool isPng = payloadSize >= 8 && payloadPtr[0] == 0x89 && payloadPtr[1] == 0x50 &&
+                           payloadPtr[2] == 0x4E && payloadPtr[3] == 0x47;
+        const bool isJpeg = payloadSize >= 3 && payloadPtr[0] == 0xFF && payloadPtr[1] == 0xD8 &&
+                            payloadPtr[2] == 0xFF;
+        if (isPng || isJpeg)
+        {
+            int decodedW = 0, decodedH = 0;
+            std::vector<uint8_t> decodedPixels;
+            if (!DecodeEmbeddedImageBytesToRgba(payloadPtr, payloadSize, decodedW, decodedH, decodedPixels))
+                return fail();
+            result.width = decodedW;
+            result.height = decodedH;
+            if (result.imageWidth <= 0 || result.imageWidth > decodedW)
+                result.imageWidth = decodedW;
+            if (result.imageHeight <= 0 || result.imageHeight > decodedH)
+                result.imageHeight = decodedH;
+            result.pixels = std::move(decodedPixels);
+            result.decodeFormat = isPng ? L"RGBA8888 (PNG)" : L"RGBA8888 (JPEG)";
+            return result;
+        }
+
         const size_t bytesNeeded = pixelCount * 4u;
         if (!requirePayload(bytesNeeded))
             return fail();

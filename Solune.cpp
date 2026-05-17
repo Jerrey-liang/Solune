@@ -781,8 +781,8 @@ void App::loop()
                     (expectedTheme == Theme::Light) ? sts::we::ThemeTag::Light : sts::we::ThemeTag::Dark;
 
                 sts::we::ApplyOptions opt;
-                opt.lightAutoPlaylistName = L"White";
-                opt.darkAutoPlaylistName = L"Black";
+                opt.lightAutoPlaylistName = L"white_auto";
+                opt.darkAutoPlaylistName = L"black_auto";
                 opt.configPath = configPathW_;
                 opt.workshopRoot431960 = workshopRoot;
                 opt.myProjectsRoot = myProjectsRoot;
@@ -821,8 +821,8 @@ void App::loop()
                         (expectedTheme == Theme::Light) ? sts::we::ThemeTag::Light : sts::we::ThemeTag::Dark;
 
                     sts::we::ApplyOptions opt;
-                    opt.lightAutoPlaylistName = L"White";
-                    opt.darkAutoPlaylistName = L"Black";
+                    opt.lightAutoPlaylistName = L"white_auto";
+                    opt.darkAutoPlaylistName = L"black_auto";
                     opt.configPath = configPathW_;
                     opt.workshopRoot431960 = workshopRoot;
                     opt.myProjectsRoot = myProjectsRoot;

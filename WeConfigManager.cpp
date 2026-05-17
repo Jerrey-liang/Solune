@@ -846,8 +846,8 @@ static void backupCleanConfig(const ApplyOptions& opt, const JsonObject& origina
             JsonObject general;
             if (jsonTryGetObject(profileObj, L"general", general))
             {
-                std::wstring lightAuto = opt.lightAutoPlaylistName.empty() ? L"White_auto" : opt.lightAutoPlaylistName;
-                std::wstring darkAuto = opt.darkAutoPlaylistName.empty() ? L"Black_auto" : opt.darkAutoPlaylistName;
+                std::wstring lightAuto = opt.lightAutoPlaylistName.empty() ? L"white_auto" : opt.lightAutoPlaylistName;
+                std::wstring darkAuto = opt.darkAutoPlaylistName.empty() ? L"black_auto" : opt.darkAutoPlaylistName;
 
                 // B1: 从播放列表大纲中删除
                 JsonArray playlists;
@@ -2744,8 +2744,8 @@ UpdateResult ApplyAndSwitch(const ApplyOptions& opt)
         settingsTemplate.SetNamedValue(L"updateonpause", JsonValue::CreateBooleanValue(false));
         settingsTemplate.SetNamedValue(L"videosequence", JsonValue::CreateBooleanValue(false));
     }
-    const std::wstring lightAuto = opt.lightAutoPlaylistName.empty() ? L"White_auto" : opt.lightAutoPlaylistName;
-    const std::wstring darkAuto = opt.darkAutoPlaylistName.empty() ? L"Black_auto" : opt.darkAutoPlaylistName;
+    const std::wstring lightAuto = opt.lightAutoPlaylistName.empty() ? L"white_auto" : opt.lightAutoPlaylistName;
+    const std::wstring darkAuto = opt.darkAutoPlaylistName.empty() ? L"black_auto" : opt.darkAutoPlaylistName;
     int lightIdx = -1, darkIdx = -1;
     bool createdLight = ensurePlaylist(playlists, lightAuto, settingsTemplate, lightIdx);
     bool createdDark = ensurePlaylist(playlists, darkAuto, settingsTemplate, darkIdx);
