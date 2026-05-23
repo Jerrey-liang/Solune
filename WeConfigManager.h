@@ -3,7 +3,12 @@
 #include <string>
 #include <windows.h>
 
+#include <winrt/Windows.Data.Json.h>
+#include <winrt/Windows.Foundation.Collections.h>
+
 #include "PkgParser.h"
+
+using namespace winrt::Windows::Data::Json;
 
 namespace sts::we
 {
@@ -84,10 +89,8 @@ namespace sts::we
 
         double minContrastDelta = 0.20;
 
-        bool enableTrayRoiL2 = true;
         double trayRoiWidthPct = 0.25;
         double trayRoiHeightPct = 0.08;
-        double l2DarkThreshold = 0.28;
 
         double confidenceThreshold = 0.55;
 
@@ -100,6 +103,19 @@ namespace sts::we
     };
 
     UpdateResult ApplyAndSwitch(const ApplyOptions& opt);
+
+    // ---- Utility functions exposed for sub-modules (WeAlign / WeClassify / WeScene) ----
+    std::string utf16ToUtf8(const std::wstring& ws);
+    std::wstring normalizeSlashes(std::wstring s);
+    bool        fileExists(const std::wstring& p);
+    std::wstring joinPath(const std::wstring& a, const std::wstring& b);
+    std::wstring getWallpaperDir(const std::wstring& path);
+    std::wstring canonicalizePathKey(std::wstring p);
+    bool        jsonTryGetNumber(JsonObject const& obj, const std::wstring& key, double& out);
+    bool        jsonTryGetString(JsonObject const& obj, const std::wstring& key, std::wstring& out);
+    bool        jsonTryGetArray (JsonObject const& obj, const std::wstring& key, JsonArray& out);
+    bool        jsonTryGetObject(JsonObject const& obj, const std::wstring& key, JsonObject& out);
+    bool        jsonTryGetBool  (JsonObject const& obj, const std::wstring& key, bool& out);
 
     const wchar_t* ThemeTagToString(ThemeTag t);
     ThemeTag ThemeTagFromString(const std::wstring& s);

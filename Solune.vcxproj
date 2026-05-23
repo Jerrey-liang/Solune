@@ -147,7 +147,10 @@
     <ClCompile Include="main.cpp" />
     <ClCompile Include="PkgParser.cpp" />
     <ClCompile Include="Solune.cpp" />
+    <ClCompile Include="WeAlign.cpp" />
+    <ClCompile Include="WeClassify.cpp" />
     <ClCompile Include="WeConfigManager.cpp" />
+    <ClCompile Include="WeScene.cpp" />
   </ItemGroup>
   <ItemGroup>
   </ItemGroup>
@@ -157,7 +160,10 @@
     <ClInclude Include="PkgParser.h" />
     <ClInclude Include="Solune.h" />
     <ClInclude Include="StringConvert.h" />
+    <ClInclude Include="WeAlign.h" />
+    <ClInclude Include="WeClassify.h" />
     <ClInclude Include="WeConfigManager.h" />
+    <ClInclude Include="WeScene.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -1,4 +1,7 @@
 ﻿#include "WeConfigManager.h"
+#include "WeAlign.h"
+#include "WeClassify.h"
+#include "WeScene.h"
 #include "StringConvert.h"
 
 #ifndef NOMINMAX
@@ -18,6 +21,7 @@
 #include <cstring>
 #include <string_view>
 #include <thread>
+#include <future>
 
 
 #include <PropIdl.h>
@@ -52,8 +56,9 @@ using winrt::Windows::Data::Json::JsonValue;
 using winrt::Windows::Data::Json::JsonValueType;
 
 // ============================================================
-// 提前声明区 (彻底解决“找不到标识符”报错)
+// 提前声明区
 // ============================================================
+
 static bool isProcessRunningByName(const wchar_t* exeName);
 static bool isWallpaperEngineRunning();
 static void killWallpaperEngineHard();
@@ -86,10 +91,7 @@ static bool setActivePlaylist(JsonObject& general, JsonArray const& playlists, c
 
 static bool tryGetProjectJsonSchemecolor(const std::wstring& pj, std::wstring& outScheme);
 static bool tryGetMainWallpaperKeyFromProjectJson(const std::wstring& pj, std::wstring& outKey);
-static bool tryGetPreviewPathFromProjectJson(const std::wstring& projectJsonPath, std::wstring& outPreviewPath);
-static bool jsonTryGetNumber(JsonObject const& obj, const std::wstring& key, double& out);
-static bool calcImageRoiStatsWIC(const std::wstring& imagePath, double wPct, double hPct, double& outAvgLuminance,
-                                 double& outDarkRatio);
+bool jsonTryGetNumber(JsonObject const& obj, const std::wstring& key, double& out);
 
 // ============================================================
 // 基础工具函数
@@ -105,14 +107,14 @@ static std::wstring toLower(std::wstring s)
                    });
     return s;
 }
-static std::wstring normalizeSlashes(std::wstring s)
+std::wstring normalizeSlashes(std::wstring s)
 {
     for (auto& c : s)
         if (c == L'\\')
             c = L'/';
     return s;
 }
-static std::wstring canonicalizePathKey(std::wstring p)
+std::wstring canonicalizePathKey(std::wstring p)
 {
     p = normalizeSlashes(std::move(p));
     if (p.size() >= 2 && p[1] == L':' && p[0] >= L'a' && p[0] <= L'z')
@@ -164,7 +166,7 @@ static bool findObjectPathKey(JsonObject const& obj, const std::wstring& key, st
     }
     return false;
 }
-static bool fileExists(const std::wstring& p)
+bool fileExists(const std::wstring& p)
 {
     DWORD attr = GetFileAttributesW(p.c_str());
     return (attr != INVALID_FILE_ATTRIBUTES) && !(attr & FILE_ATTRIBUTE_DIRECTORY);
@@ -180,7 +182,7 @@ static bool endsWithInsensitive(const std::wstring& value, const std::wstring& s
         return false;
     return toLower(value.substr(value.size() - suffix.size())) == toLower(suffix);
 }
-static std::wstring joinPath(const std::wstring& a, const std::wstring& b)
+std::wstring joinPath(const std::wstring& a, const std::wstring& b)
 {
     if (a.empty())
         return b;
@@ -198,7 +200,7 @@ static std::wstring getParentDir(std::wstring path)
         return L"";
     return path.substr(0, pos);
 }
-static std::wstring getWallpaperDir(const std::wstring& path)
+std::wstring getWallpaperDir(const std::wstring& path)
 {
     std::wstring p = canonicalizePathKey(path);
     if (!p.empty() && p.back() == L'/')
@@ -300,7 +302,7 @@ static bool wallpaperFileExists(const std::wstring& wallpaperPath)
     std::wstring resolved;
     return tryResolveExistingWallpaperFile(wallpaperPath, resolved);
 }
-static std::string utf16ToUtf8(const std::wstring& ws)
+std::string utf16ToUtf8(const std::wstring& ws)
 {
     if (ws.empty())
         return {};
@@ -455,7 +457,7 @@ static JsonValue wrapArrayValue(JsonArray const& arr)
 {
     return JsonValue::Parse(arr.Stringify());
 }
-static bool jsonTryGetObject(JsonObject const& obj, const std::wstring& key, JsonObject& out)
+bool jsonTryGetObject(JsonObject const& obj, const std::wstring& key, JsonObject& out)
 {
     if (!obj.HasKey(key))
         return false;
@@ -465,7 +467,7 @@ static bool jsonTryGetObject(JsonObject const& obj, const std::wstring& key, Jso
     out = v.GetObject();
     return true;
 }
-static bool jsonTryGetArray(JsonObject const& obj, const std::wstring& key, JsonArray& out)
+bool jsonTryGetArray(JsonObject const& obj, const std::wstring& key, JsonArray& out)
 {
     if (!obj.HasKey(key))
         return false;
@@ -475,7 +477,7 @@ static bool jsonTryGetArray(JsonObject const& obj, const std::wstring& key, Json
     out = v.GetArray();
     return true;
 }
-static bool jsonTryGetString(JsonObject const& obj, const std::wstring& key, std::wstring& out)
+bool jsonTryGetString(JsonObject const& obj, const std::wstring& key, std::wstring& out)
 {
     if (!obj.HasKey(key))
         return false;
@@ -486,32 +488,9 @@ static bool jsonTryGetString(JsonObject const& obj, const std::wstring& key, std
     return true;
 }
 
-struct WallpaperAlignmentSettings
-{
-    bool custom = false;
-    int mode = 0;
-    double position = 50.0;
-    double x = 50.0;
-    double y = 50.0;
-    double z = 100.0;
-    bool flipH = false;
-};
 
-struct WallpaperPlacement
-{
-    double displayW = 0.0;
-    double displayH = 0.0;
-    double sourceW = 0.0;
-    double sourceH = 0.0;
-    double contentX = 0.0;
-    double contentY = 0.0;
-    double contentW = 0.0;
-    double contentH = 0.0;
-    bool stretch = false;
-    bool flipH = false;
-};
 
-static bool jsonTryGetBool(JsonObject const& obj, const std::wstring& key, bool& out)
+bool jsonTryGetBool(JsonObject const& obj, const std::wstring& key, bool& out)
 {
     if (!obj.HasKey(key))
         return false;
@@ -522,134 +501,9 @@ static bool jsonTryGetBool(JsonObject const& obj, const std::wstring& key, bool&
     return true;
 }
 
-static WallpaperAlignmentSettings readWallpaperAlignment(JsonObject const& monitor0)
-{
-    WallpaperAlignmentSettings a;
-    double n = 0.0;
 
-    if (jsonTryGetNumber(monitor0, L"alignment", n))
-    {
-        a.mode = static_cast<int>(n);
-        a.custom = true;
-    }
-    const bool hasPosition = jsonTryGetNumber(monitor0, L"alignmentposition", a.position);
-    const bool hasX = jsonTryGetNumber(monitor0, L"alignmentx", a.x);
-    const bool hasY = jsonTryGetNumber(monitor0, L"alignmenty", a.y);
-    const bool hasZ = jsonTryGetNumber(monitor0, L"alignmentz", a.z);
-    const bool hasFlip = jsonTryGetBool(monitor0, L"alignmentfliph", a.flipH);
 
-    if (hasPosition || hasX || hasY || hasZ || hasFlip)
-        a.custom = true;
 
-    if (!monitor0.HasKey(L"alignment") && (hasX || hasY || hasZ || hasFlip) && !hasPosition)
-        a.mode = 4;
-
-    a.position = (std::max)(0.0, (std::min)(100.0, a.position));
-    a.x = (std::max)(0.0, (std::min)(100.0, a.x));
-    a.y = (std::max)(0.0, (std::min)(100.0, a.y));
-    a.z = (std::max)(1.0, (std::min)(400.0, a.z));
-    return a;
-}
-
-static void getPrimaryDisplaySize(double fallbackW, double fallbackH, double& outW, double& outH)
-{
-    outW = static_cast<double>(GetSystemMetrics(SM_CXSCREEN));
-    outH = static_cast<double>(GetSystemMetrics(SM_CYSCREEN));
-    if (outW <= 0.0 || outH <= 0.0)
-    {
-        outW = fallbackW;
-        outH = fallbackH;
-    }
-}
-
-static WallpaperPlacement makeWallpaperPlacement(double sourceW, double sourceH, const WallpaperAlignmentSettings& align)
-{
-    WallpaperPlacement p;
-    p.sourceW = sourceW;
-    p.sourceH = sourceH;
-    if (sourceW <= 0.0 || sourceH <= 0.0)
-        return p;
-
-    if (align.custom)
-        getPrimaryDisplaySize(sourceW, sourceH, p.displayW, p.displayH);
-    else
-    {
-        p.displayW = sourceW;
-        p.displayH = sourceH;
-    }
-
-    // Wallpaper Engine 的 alignmentz 越小表示越靠近/放大；按倒数换成实际缩放倍率。
-    const double zoom = 100.0 / align.z;
-    const double scaleCover = (std::max)(p.displayW / sourceW, p.displayH / sourceH);
-    const double scaleContain = (std::min)(p.displayW / sourceW, p.displayH / sourceH);
-    const double pos = align.position / 100.0;
-
-    p.flipH = align.flipH;
-    switch (align.mode)
-    {
-        case 1: // Center
-            p.contentW = sourceW * zoom;
-            p.contentH = sourceH * zoom;
-            p.contentX = (p.displayW - p.contentW) * 0.5;
-            p.contentY = (p.displayH - p.contentH) * 0.5;
-            break;
-        case 2: // Stretch
-            p.stretch = true;
-            p.contentW = p.displayW;
-            p.contentH = p.displayH;
-            break;
-        case 3: // Fill / fit inside
-            p.contentW = sourceW * scaleContain * zoom;
-            p.contentH = sourceH * scaleContain * zoom;
-            p.contentX = (p.displayW - p.contentW) * pos;
-            p.contentY = (p.displayH - p.contentH) * pos;
-            break;
-        case 4: // Free
-            p.contentW = sourceW * scaleCover * zoom;
-            p.contentH = sourceH * scaleCover * zoom;
-            p.contentX = (p.displayW - p.contentW) * (align.x / 100.0);
-            p.contentY = (p.displayH - p.contentH) * (align.y / 100.0);
-            break;
-        case 0: // Cover
-        default:
-            p.contentW = sourceW * scaleCover * zoom;
-            p.contentH = sourceH * scaleCover * zoom;
-            p.contentX = (p.displayW - p.contentW) * pos;
-            p.contentY = (p.displayH - p.contentH) * pos;
-            break;
-    }
-
-    if (p.contentW <= 0.0 || p.contentH <= 0.0)
-    {
-        p.contentW = sourceW;
-        p.contentH = sourceH;
-    }
-    return p;
-}
-
-static bool mapDisplayToSource(const WallpaperPlacement& p, double displayX, double displayY, double& outX, double& outY)
-{
-    if (p.sourceW <= 0.0 || p.sourceH <= 0.0 || p.displayW <= 0.0 || p.displayH <= 0.0)
-        return false;
-
-    if (p.stretch)
-    {
-        outX = (displayX / p.displayW) * p.sourceW;
-        outY = (displayY / p.displayH) * p.sourceH;
-    }
-    else
-    {
-        if (p.contentW <= 0.0 || p.contentH <= 0.0)
-            return false;
-        outX = ((displayX - p.contentX) / p.contentW) * p.sourceW;
-        outY = ((displayY - p.contentY) / p.contentH) * p.sourceH;
-    }
-
-    if (p.flipH)
-        outX = p.sourceW - outX;
-
-    return outX >= 0.0 && outY >= 0.0 && outX < p.sourceW && outY < p.sourceH;
-}
 
 static std::wstring getCurrentUserName()
 {
@@ -759,21 +613,6 @@ static std::wstring detectProfileKey(JsonObject const& root)
     return bestKey;
 }
 
-static const double* GetSRGBLut()
-{
-    static double lut[256];
-    static bool init = false;
-    if (!init)
-    {
-        for (int i = 0; i < 256; ++i)
-        {
-            double c = i / 255.0;
-            lut[i] = (c <= 0.04045) ? (c / 12.92) : std::pow((c + 0.055) / 1.055, 2.4);
-        }
-        init = true;
-    }
-    return lut;
-}
 
 // ============================================================
 // 【新增】生成无污染的纯净同步备份 (安全遍历版，修复崩溃地雷)
@@ -922,280 +761,8 @@ static void backupCleanConfig(const ApplyOptions& opt, const JsonObject& origina
     }
 }
 
-// ============================================================
-// 视觉核心：运算规则与色彩判定
-// ============================================================
 
-static ClassifyResult ClassifyByStats(const ClassifyFeatures& f)
-{
-    ThemeTag tag = ThemeTag::Unknown;
-    double conf = 0.50;
 
-    if (f.globalAvg >= 0.48)
-    {
-        if (f.roiAvg <= 0.22 && f.roiDarkRatio >= 0.60 && f.globalDarkRatio >= 0.22)
-        { tag = ThemeTag::Dark; conf = 0.82;
-            if (f.roiAvg <= 0.18 && f.roiDarkRatio >= 0.65) { tag = ThemeTag::Ignore; conf = 0.85; } }
-        else { tag = ThemeTag::Light; conf = 0.90; }
-    }
-    else if (f.globalDarkRatio >= 0.50 && f.globalAvg <= 0.30 && (f.roiDarkRatio >= 0.22 || f.roiAvg <= 0.34))
-    { tag = ThemeTag::Dark; conf = 0.88; }
-    else if (f.globalAvg >= 0.22 && f.globalAvg <= 0.40 && f.globalDarkRatio >= 0.35 && f.globalDarkRatio <= 0.55 &&
-             f.roiAvg >= 0.35 && f.roiDarkRatio <= 0.25)
-    { tag = ThemeTag::Both; conf = 0.75; }
-    else if (f.globalAvg >= 0.28 && f.roiAvg >= 0.26 && f.roiDarkRatio <= 0.35)
-    {
-        if (f.globalDarkRatio >= 0.42 && f.globalAvg <= 0.35) { tag = ThemeTag::Both; conf = 0.72; }
-        else { tag = ThemeTag::Light; conf = 0.82; }
-    }
-    else if (f.globalAvg >= 0.25 && f.globalAvg <= 0.42 && f.roiAvg >= 0.16 && f.roiAvg <= 0.29 &&
-             f.roiDarkRatio <= 0.55)
-    { tag = ThemeTag::Both; conf = 0.68; }
-    else if (f.roiDarkRatio >= 0.68 && f.roiAvg < 0.25)
-    { tag = ThemeTag::Dark; conf = 0.62; }
-    else if (f.roiAvg >= 0.16)
-    {
-        if (f.globalDarkRatio >= 0.48 && f.globalAvg <= 0.30) { tag = ThemeTag::Both; conf = 0.70; }
-        else { tag = ThemeTag::Light; conf = 0.60; }
-    }
-    else if (f.roiAvg <= 0.10)
-    { tag = ThemeTag::Dark; conf = 0.55; }
-    else
-    { tag = ThemeTag::Both; conf = 0.50; }
-
-    // No Both: resolve to Light or Dark
-    if (tag == ThemeTag::Both)
-        tag = (f.globalAvg >= 0.44) ? ThemeTag::Light : ThemeTag::Dark;
-
-    // Tray readability: globally bright with mixed tray pixels -> Dark
-    if (tag == ThemeTag::Light && f.roiDarkRatio > 0.40)
-        tag = ThemeTag::Dark;
-
-    // Borderline Dark with moderate global darkness -> Both (then Light)
-    if (tag == ThemeTag::Dark && f.globalDarkRatio < 0.45 && f.roiAvg > 0.10 && f.roiDarkRatio < 0.70)
-        tag = ThemeTag::Both;
-
-    if (conf < 0.0) conf = 0.0;
-    if (conf > 1.0) conf = 1.0;
-    return {tag, conf};
-}
-
-static double rgbToLinearLuminance(uint8_t r, uint8_t g, uint8_t b)
-{
-    const double* lut = GetSRGBLut();
-    return 0.2126 * lut[r] + 0.7152 * lut[g] + 0.0722 * lut[b];
-}
-
-static bool calcRgbaRoiStatsAligned(const PkgParser::RgbaImage& img, double wPct, double hPct,
-                                    const WallpaperAlignmentSettings& alignment, double& outRoiAvg,
-                                    double& outRoiDark, double& outGlobalAvg, double& outGlobalDark)
-{
-    if (!img.IsValid() || img.width <= 0 || img.height <= 0)
-        return false;
-
-    const int sourceW = (img.imageWidth > 0) ? img.imageWidth : img.width;
-    const int sourceH = (img.imageHeight > 0) ? img.imageHeight : img.height;
-    if (sourceW <= 0 || sourceH <= 0)
-        return false;
-
-    const WallpaperPlacement placement = makeWallpaperPlacement(sourceW, sourceH, alignment);
-    const int displayW = (std::max)(1, static_cast<int>(placement.displayW + 0.5));
-    const int displayH = (std::max)(1, static_cast<int>(placement.displayH + 0.5));
-    const int roiW = (std::max)(1, static_cast<int>(placement.displayW * wPct));
-    const int roiH = (std::max)(1, static_cast<int>(placement.displayH * hPct));
-    const int roiX = (std::max)(0, displayW - roiW);
-    const int roiY = (std::max)(0, displayH - roiH);
-    const int step = alignment.custom ? 4 : 1;
-
-    double sumGlobalL = 0.0;
-    double sumRoiL = 0.0;
-    int darkGlobal = 0;
-    int darkRoi = 0;
-    int globalCount = 0;
-    int roiCount = 0;
-
-    for (int y = 0; y < sourceH; y += 4)
-    {
-        const uint8_t* row = img.pixels.data() + static_cast<size_t>(y) * static_cast<size_t>(img.width) * 4u;
-        for (int x = 0; x < sourceW; x += 4)
-        {
-            const uint8_t* px = row + static_cast<size_t>(x) * 4u;
-            const double alpha = px[3] / 255.0;
-            const uint8_t r = static_cast<uint8_t>((std::min)(255.0, px[0] * alpha + 0.5));
-            const uint8_t g = static_cast<uint8_t>((std::min)(255.0, px[1] * alpha + 0.5));
-            const uint8_t b = static_cast<uint8_t>((std::min)(255.0, px[2] * alpha + 0.5));
-            const double L = rgbToLinearLuminance(r, g, b);
-            sumGlobalL += L;
-            ++globalCount;
-            if (L < 0.179)
-                ++darkGlobal;
-        }
-    }
-
-    for (int dy = roiY; dy < displayH; dy += step)
-    {
-        for (int dx = roiX; dx < displayW; dx += step)
-        {
-            double sx = 0.0, sy = 0.0;
-            double L = 0.0;
-            if (mapDisplayToSource(placement, dx + 0.5, dy + 0.5, sx, sy))
-            {
-                const int tx = (std::max)(0, (std::min)(sourceW - 1, static_cast<int>(sx)));
-                const int ty = (std::max)(0, (std::min)(sourceH - 1, static_cast<int>(sy)));
-                const uint8_t* px =
-                    img.pixels.data() + (static_cast<size_t>(ty) * static_cast<size_t>(img.width) + tx) * 4u;
-                const double alpha = px[3] / 255.0;
-                const uint8_t r = static_cast<uint8_t>((std::min)(255.0, px[0] * alpha + 0.5));
-                const uint8_t g = static_cast<uint8_t>((std::min)(255.0, px[1] * alpha + 0.5));
-                const uint8_t b = static_cast<uint8_t>((std::min)(255.0, px[2] * alpha + 0.5));
-                L = rgbToLinearLuminance(r, g, b);
-            }
-
-            sumRoiL += L;
-            ++roiCount;
-            if (L < 0.179)
-                ++darkRoi;
-        }
-    }
-
-    if (globalCount == 0 || roiCount == 0)
-        return false;
-    outGlobalAvg = sumGlobalL / static_cast<double>(globalCount);
-    outGlobalDark = static_cast<double>(darkGlobal) / static_cast<double>(globalCount);
-    outRoiAvg = sumRoiL / static_cast<double>(roiCount);
-    outRoiDark = static_cast<double>(darkRoi) / static_cast<double>(roiCount);
-    return true;
-}
-
-// ============================================================
-// WIC 图像处理
-// ============================================================
-static bool calcImageRoiStatsWIC(const std::wstring& imagePath, double wPct, double hPct, double& outAvgLuminance,
-                                 double& outDarkRatio)
-{
-    winrt::com_ptr<IWICImagingFactory> factory;
-    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory))))
-        return false;
-    winrt::com_ptr<IWICBitmapDecoder> decoder;
-    if (FAILED(factory->CreateDecoderFromFilename(imagePath.c_str(), nullptr, GENERIC_READ,
-                                                  WICDecodeMetadataCacheOnDemand, decoder.put())))
-        return false;
-    winrt::com_ptr<IWICBitmapFrameDecode> frame;
-    if (FAILED(decoder->GetFrame(0, frame.put())))
-        return false;
-    UINT w = 0, h = 0;
-    frame->GetSize(&w, &h);
-    if (w == 0 || h == 0)
-        return false;
-    WICRect rect{};
-    rect.Width = (std::max)(1u, static_cast<UINT>(w * wPct));
-    rect.Height = (std::max)(1u, static_cast<UINT>(h * hPct));
-    rect.X = w - rect.Width;
-    rect.Y = h - rect.Height;
-    winrt::com_ptr<IWICBitmapClipper> clipper;
-    if (FAILED(factory->CreateBitmapClipper(clipper.put())))
-        return false;
-    if (FAILED(clipper->Initialize(frame.get(), &rect)))
-        return false;
-    winrt::com_ptr<IWICFormatConverter> converter;
-    if (FAILED(factory->CreateFormatConverter(converter.put())))
-        return false;
-    if (FAILED(converter->Initialize(clipper.get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr,
-                                     0.0, WICBitmapPaletteTypeCustom)))
-        return false;
-    const size_t pixelCount = static_cast<size_t>(rect.Width) * static_cast<size_t>(rect.Height);
-    std::vector<BYTE> pixels(pixelCount * 4u);
-    if (FAILED(converter->CopyPixels(nullptr, rect.Width * 4, static_cast<UINT>(pixels.size()), pixels.data())))
-        return false;
-    const double* lut = GetSRGBLut();
-    double sumLum = 0.0;
-    int darkPixels = 0;
-    const size_t count = pixelCount;
-    for (size_t i = 0; i < count; ++i)
-    {
-        const size_t offset = i * 4u;
-        BYTE b = pixels[offset + 0], g = pixels[offset + 1], r = pixels[offset + 2];
-        double L = 0.2126 * lut[r] + 0.7152 * lut[g] + 0.0722 * lut[b];
-        sumLum += L;
-        if (L < 0.179)
-            darkPixels++;
-    }
-    outAvgLuminance = sumLum / static_cast<double>(count);
-    outDarkRatio = static_cast<double>(darkPixels) / static_cast<double>(count);
-    return true;
-}
-
-static bool calcImageRoiStatsWICAligned(const std::wstring& imagePath, double wPct, double hPct,
-                                        const WallpaperAlignmentSettings& alignment, double& outAvgLuminance,
-                                        double& outDarkRatio)
-{
-    if (!alignment.custom)
-        return calcImageRoiStatsWIC(imagePath, wPct, hPct, outAvgLuminance, outDarkRatio);
-
-    winrt::com_ptr<IWICImagingFactory> factory;
-    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory))))
-        return false;
-    winrt::com_ptr<IWICBitmapDecoder> decoder;
-    if (FAILED(factory->CreateDecoderFromFilename(imagePath.c_str(), nullptr, GENERIC_READ,
-                                                  WICDecodeMetadataCacheOnDemand, decoder.put())))
-        return false;
-    winrt::com_ptr<IWICBitmapFrameDecode> frame;
-    if (FAILED(decoder->GetFrame(0, frame.put())))
-        return false;
-    UINT w = 0, h = 0;
-    frame->GetSize(&w, &h);
-    if (w == 0 || h == 0)
-        return false;
-
-    winrt::com_ptr<IWICFormatConverter> converter;
-    if (FAILED(factory->CreateFormatConverter(converter.put())))
-        return false;
-    if (FAILED(converter->Initialize(frame.get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr,
-                                     0.0, WICBitmapPaletteTypeCustom)))
-        return false;
-
-    const size_t pixelCount = static_cast<size_t>(w) * static_cast<size_t>(h);
-    std::vector<BYTE> pixels(pixelCount * 4u);
-    if (FAILED(converter->CopyPixels(nullptr, w * 4, static_cast<UINT>(pixels.size()), pixels.data())))
-        return false;
-
-    const WallpaperPlacement placement = makeWallpaperPlacement(static_cast<double>(w), static_cast<double>(h), alignment);
-    const int displayW = (std::max)(1, static_cast<int>(placement.displayW + 0.5));
-    const int displayH = (std::max)(1, static_cast<int>(placement.displayH + 0.5));
-    const int roiW = (std::max)(1, static_cast<int>(placement.displayW * wPct));
-    const int roiH = (std::max)(1, static_cast<int>(placement.displayH * hPct));
-    const int roiX = (std::max)(0, displayW - roiW);
-    const int roiY = (std::max)(0, displayH - roiH);
-
-    double sumLum = 0.0;
-    int darkPixels = 0;
-    int count = 0;
-    for (int dy = roiY; dy < displayH; dy += 4)
-    {
-        for (int dx = roiX; dx < displayW; dx += 4)
-        {
-            double sx = 0.0, sy = 0.0;
-            double L = 0.0;
-            if (mapDisplayToSource(placement, dx + 0.5, dy + 0.5, sx, sy))
-            {
-                const int tx = (std::max)(0, (std::min)(static_cast<int>(w) - 1, static_cast<int>(sx)));
-                const int ty = (std::max)(0, (std::min)(static_cast<int>(h) - 1, static_cast<int>(sy)));
-                const size_t offset = (static_cast<size_t>(ty) * static_cast<size_t>(w) + tx) * 4u;
-                L = rgbToLinearLuminance(pixels[offset + 2], pixels[offset + 1], pixels[offset + 0]);
-            }
-            sumLum += L;
-            ++count;
-            if (L < 0.179)
-                ++darkPixels;
-        }
-    }
-
-    if (count == 0)
-        return false;
-    outAvgLuminance = sumLum / static_cast<double>(count);
-    outDarkRatio = static_cast<double>(darkPixels) / static_cast<double>(count);
-    return true;
-}
 
 static bool calcVideoRoiStatsMF(const std::wstring& videoPath, double wPct, double hPct,
                                 const WallpaperAlignmentSettings& alignment, double& outRoiAvg, double& outRoiDark,
@@ -1297,7 +864,7 @@ static bool calcVideoRoiStatsMF(const std::wstring& videoPath, double wPct, doub
     LONG absStride = std::abs(stride);
 
     const WallpaperPlacement placement =
-        makeWallpaperPlacement(static_cast<double>(width), static_cast<double>(height), alignment);
+        MakeWallpaperPlacement(static_cast<double>(width), static_cast<double>(height), alignment);
     const int displayW = (std::max)(1, static_cast<int>(placement.displayW + 0.5));
     const int displayH = (std::max)(1, static_cast<int>(placement.displayH + 0.5));
     const int roiW = (std::max)(1, static_cast<int>(placement.displayW * wPct));
@@ -1337,7 +904,7 @@ static bool calcVideoRoiStatsMF(const std::wstring& videoPath, double wPct, doub
         {
             double sx = 0.0, sy = 0.0;
             double L = 0.0;
-            if (mapDisplayToSource(placement, dx + 0.5, dy + 0.5, sx, sy))
+            if (MapDisplayToSource(placement, dx + 0.5, dy + 0.5, sx, sy))
             {
                 const UINT32 tx = (std::max)(0u, (std::min)(width - 1u, static_cast<UINT32>(sx)));
                 const UINT32 ty = (std::max)(0u, (std::min)(height - 1u, static_cast<UINT32>(sy)));
@@ -1434,70 +1001,6 @@ static bool tryGetMainWallpaperKeyFromProjectJson(const std::wstring& pj, std::w
         return true;
     }
     return false;
-}
-static bool tryGetPreviewPathFromProjectJson(const std::wstring& projectJsonPath, std::wstring& outPreviewPath)
-{
-    std::string text;
-    if (!readAllTextUtf8(projectJsonPath, text))
-        return false;
-    JsonObject root;
-    try
-    {
-        if (!JsonObject::TryParse(winrt::to_hstring(text), root))
-            return false;
-    }
-    catch (...)
-    {
-        return false;
-    }
-    std::wstring previewFile;
-    if (jsonTryGetString(root, L"preview", previewFile))
-    {
-        outPreviewPath = normalizeSlashes(getParentDir(projectJsonPath)) + L"/" + normalizeSlashes(previewFile);
-        return fileExists(outPreviewPath);
-    }
-    return false;
-}
-
-// ============================================================
-// 静态打标 (Pass 1 & Pass 2)
-// ============================================================
-static ThemeTag evaluateL2TrayRoi(const std::wstring& wallpaperDir, const ApplyOptions& opt,
-                                  const WallpaperAlignmentSettings& alignment)
-{
-
-    // 提取文件夹名称（即壁纸 ID）
-    std::wstring wpId = wallpaperDir;
-    auto slashPos = wpId.find_last_of(L'/');
-    if (slashPos != std::wstring::npos)
-        wpId = wpId.substr(slashPos + 1);
-
-    // 原有逻辑：继续寻找并计算预览图
-    std::wstring previewPath = joinPath(wallpaperDir, L"preview.jpg");
-    if (!fileExists(previewPath))
-    {
-        previewPath = joinPath(wallpaperDir, L"preview.png");
-        if (!fileExists(previewPath))
-        {
-            previewPath = joinPath(wallpaperDir, L"preview.gif");
-            if (!fileExists(previewPath))
-            {
-                std::wstring pj = joinPath(wallpaperDir, L"project.json");
-                if (!tryGetPreviewPathFromProjectJson(pj, previewPath))
-                    return ThemeTag::Unknown;
-            }
-        }
-    }
-
-    double roiAvg = 0.0, roiDarkRatio = 0.0;
-    if (!calcImageRoiStatsWICAligned(previewPath, opt.trayRoiWidthPct, opt.trayRoiHeightPct, alignment, roiAvg,
-                                     roiDarkRatio))
-        return ThemeTag::Unknown;
-
-    double globalAvg = 0.0, globalDarkRatio = 0.0;
-    calcImageRoiStatsWIC(previewPath, 1.0, 1.0, globalAvg, globalDarkRatio);
-
-    { ClassifyFeatures _f; _f.roiAvg=roiAvg; _f.roiDarkRatio=roiDarkRatio; _f.globalAvg=globalAvg; _f.globalDarkRatio=globalDarkRatio; auto _cr=ClassifyByStats(_f); return _cr.tag; }
 }
 
 // 进程与其他辅助工具实现
@@ -1939,74 +1442,8 @@ static bool setActivePlaylist(JsonObject& general, JsonArray const& playlists, c
     return true;
 }
 
-static bool parseSchemecolor3(const std::wstring& s, double& r, double& g, double& b)
-{
-    r = g = b = 0.0;
-    int n = swscanf_s(s.c_str(), L"%lf %lf %lf", &r, &g, &b);
-    if (n != 3)
-        return false;
-    auto clamp01 = [](double& x)
-    {
-        if (x < 0.0)
-            x = 0.0;
-        if (x > 1.0)
-            x = 1.0;
-    };
-    clamp01(r);
-    clamp01(g);
-    clamp01(b);
-    return true;
-}
-static double srgbToLinear(double c01)
-{
-    return (c01 <= 0.04045) ? c01 / 12.92 : std::pow((c01 + 0.055) / 1.055, 2.4);
-}
-static double relativeLuminance(double r01, double g01, double b01)
-{
-    return 0.2126 * srgbToLinear(r01) + 0.7152 * srgbToLinear(g01) + 0.0722 * srgbToLinear(b01);
-}
-static double contrastRatio(double L1, double L2)
-{
-    double a = (std::max)(L1, L2);
-    double b = (std::min)(L1, L2);
-    return (a + 0.05) / (b + 0.05);
-}
-static double rgbToHueDeg(double r01, double g01, double b01)
-{
-    const double maxv = (std::max)(r01, (std::max)(g01, b01)), minv = (std::min)(r01, (std::min)(g01, b01)),
-                 d = maxv - minv;
-    if (d <= 1e-12)
-        return 0.0;
-    double h = 0.0;
-    if (maxv == r01)
-        h = (g01 - b01) / d + (g01 < b01 ? 6.0 : 0.0);
-    else if (maxv == g01)
-        h = (b01 - r01) / d + 2.0;
-    else
-        h = (r01 - g01) / d + 4.0;
-    h *= 60.0;
-    if (h < 0.0)
-        h += 360.0;
-    if (h >= 360.0)
-        h -= 360.0;
-    return h;
-}
-static ThemeTag classifyFromSchemecolor(const std::wstring& sc, double)
-{
-    double r, g, b;
-    if (!parseSchemecolor3(sc, r, g, b))
-        return ThemeTag::Unknown;
-    const double L = relativeLuminance(r, g, b), hue = rgbToHueDeg(r, g, b);
-    const bool isCool = (hue >= 180.0 && hue <= 270.0), isWarm = (hue >= 320.0 || hue <= 40.0);
-    double thr = isCool ? 0.30 : (isWarm ? 0.18 : 0.28);
-    const double cMax = (std::max)(r, (std::max)(g, b)), cMin = (std::min)(r, (std::min)(g, b));
-    ThemeTag inferred = (L < thr) ? ThemeTag::Dark : ThemeTag::Light;
-    if (isWarm && cMax >= 0.65 && (cMax > 1e-9 ? ((cMax - cMin) / cMax) : 0.0) >= 0.20)
-        inferred = ThemeTag::Light;
-    return inferred;
-}
 
-static bool jsonTryGetNumber(JsonObject const& obj, const std::wstring& key, double& out)
+bool jsonTryGetNumber(JsonObject const& obj, const std::wstring& key, double& out)
 {
     if (!obj.HasKey(key))
         return false;
@@ -2017,455 +1454,42 @@ static bool jsonTryGetNumber(JsonObject const& obj, const std::wstring& key, dou
     return true;
 }
 
-static bool parseVec3String(const std::wstring& s, double& x, double& y, double& z)
-{
-    x = y = z = 0.0;
-    return swscanf_s(s.c_str(), L"%lf %lf %lf", &x, &y, &z) >= 2;
-}
 
-static bool sceneValueToVec3(winrt::Windows::Data::Json::IJsonValue const& value, double& x, double& y, double& z)
-{
-    if (value.ValueType() == JsonValueType::String)
-        return parseVec3String(value.GetString().c_str(), x, y, z);
-    if (value.ValueType() == JsonValueType::Object)
-    {
-        std::wstring s;
-        if (jsonTryGetString(value.GetObject(), L"value", s))
-            return parseVec3String(s, x, y, z);
-    }
-    return false;
-}
 
-static bool sceneTryGetVec3(JsonObject const& obj, const std::wstring& key, double& x, double& y, double& z)
-{
-    if (!obj.HasKey(key))
-        return false;
-    return sceneValueToVec3(obj.GetNamedValue(key), x, y, z);
-}
 
-static double sceneReadScalar(JsonObject const& obj, const std::wstring& key, double fallback)
-{
-    if (!obj.HasKey(key))
-        return fallback;
-    auto v = obj.GetNamedValue(key);
-    if (v.ValueType() == JsonValueType::Number)
-        return v.GetNumber();
-    if (v.ValueType() == JsonValueType::Object)
-    {
-        double n = fallback;
-        if (jsonTryGetNumber(v.GetObject(), L"value", n))
-            return n;
-    }
-    return fallback;
-}
 
-static bool sceneObjectVisible(JsonObject const& obj)
-{
-    if (!obj.HasKey(L"visible"))
-        return true;
-    auto v = obj.GetNamedValue(L"visible");
-    if (v.ValueType() == JsonValueType::Boolean)
-        return v.GetBoolean();
-    if (v.ValueType() == JsonValueType::Object)
-    {
-        JsonObject o = v.GetObject();
-        if (o.HasKey(L"value"))
-        {
-            auto vv = o.GetNamedValue(L"value");
-            if (vv.ValueType() == JsonValueType::Boolean)
-                return vv.GetBoolean();
-        }
-    }
-    return true;
-}
 
-static std::string dirnameUtf8(const std::string& path)
-{
-    const size_t pos = path.find_last_of('/');
-    return (pos == std::string::npos) ? std::string{} : path.substr(0, pos);
-}
 
-static std::string normalizePkgPathUtf8(std::string path)
-{
-    for (char& c : path)
-        if (c == '\\')
-            c = '/';
-    while (!path.empty() && path.front() == '/')
-        path.erase(path.begin());
-    return path;
-}
 
-static bool parseVfsJson(const PkgParser& parser, const std::string& path, JsonObject& out)
-{
-    const auto& vfs = parser.GetVFS();
-    auto it = vfs.find(path);
-    if (it == vfs.end())
-    {
-        std::wstring targetW = sts::WStringFromUtf8(path);
-        for (const auto& [vp, sp] : vfs)
-        {
-            if (sts::WStringFromUtf8(vp) == targetW)
-            {
-                std::string text(reinterpret_cast<const char*>(sp.data), sp.size);
-                return JsonObject::TryParse(winrt::to_hstring(text), out);
-            }
-        }
-        return false;
-    }
-    const MemSpan span = it->second;
-    std::string text(reinterpret_cast<const char*>(span.data), span.size);
-    return JsonObject::TryParse(winrt::to_hstring(text), out);
-}
 
-static bool resolveTexturePath(const PkgParser& parser, const std::string& materialDir, std::wstring textureName,
-                               std::string& outPath)
-{
-    std::string tex = normalizePkgPathUtf8(utf16ToUtf8(textureName));
-    if (tex.empty())
-        return false;
-    if (tex.size() < 4 || tex.substr(tex.size() - 4) != ".tex")
-        tex += ".tex";
 
-    const auto& vfs = parser.GetVFS();
-    const std::string direct = tex;
-    if (vfs.find(direct) != vfs.end())
-    {
-        outPath = direct;
-        return true;
-    }
 
-    const std::string inMaterialDir = materialDir.empty() ? tex : (materialDir + "/" + tex);
-    if (vfs.find(inMaterialDir) != vfs.end())
-    {
-        outPath = inMaterialDir;
-        return true;
-    }
 
-    const std::string inMaterials = "materials/" + tex;
-    if (vfs.find(inMaterials) != vfs.end())
-    {
-        outPath = inMaterials;
-        return true;
-    }
+// Apply WE scene.json "colorBlendMode" to a texture pixel.
+// cR/cG/cB = texture pixel (0..1), tR/tG/tB = layer color property (0..1).
+// Returns the blended pixel channels (R, G, B).
+// Mapping from WE scene format values to standard blend equations:
+//   0 = multiply (default multiplicative tint; WE "Normal"/default behavior)
+//   1 = additive / linear dodge
+//   2 = subtract
+//   3 = screen
+//   4 = overlay
+//   5 = soft light
+//   6 = hard light
+//   7 = color dodge
+//   8 = color burn
+//   9 = darken
+//  10 = lighten
+//  11 = difference
+//  12 = multiply (empirically determined: used with grey tint on reflection layers)
+// Note: the exact WE colorBlendMode mapping is not publicly documented.
+// Modes 1-11 use standard blend ordering; mode 12 was determined from scene analysis.
 
-    const std::string suffix = "/" + tex;
-    for (const auto& [path, span] : vfs)
-    {
-        (void)span;
-        if (path.size() >= suffix.size() && path.compare(path.size() - suffix.size(), suffix.size(), suffix) == 0)
-        {
-            outPath = path;
-            return true;
-        }
-    }
 
-    // Wide-string fallback for Unicode normalization mismatches
-    std::wstring texW = textureName;
-    if (texW.size() < 4 || texW.substr(texW.size() - 4) != L".tex")
-        texW += L".tex";
-    for (const auto& [vp, sp] : vfs)
-    {
-        (void)sp;
-        std::wstring vW = sts::WStringFromUtf8(vp);
-        if (vW.size() >= texW.size() && vW.compare(vW.size() - texW.size(), texW.size(), texW) == 0)
-        {
-            outPath = vp;
-            return true;
-        }
-    }
-    return false;
-}
 
-static bool resolveObjectTexturePath(const PkgParser& parser, JsonObject const& obj, std::string& outPath)
-{
-    std::wstring imagePathW;
-    if (!jsonTryGetString(obj, L"image", imagePathW))
-        return false;
 
-    std::string modelPath = normalizePkgPathUtf8(utf16ToUtf8(imagePathW));
-    if (modelPath.find("models/util/") == 0)
-        return false;
+// ---- WIC PNG writer (used by RenderSceneCompositeToPng) ------------------
 
-    JsonObject model;
-    if (!parseVfsJson(parser, modelPath, model))
-        return false;
-
-    std::wstring materialPathW;
-    if (!jsonTryGetString(model, L"material", materialPathW))
-        return false;
-
-    std::string materialPath = normalizePkgPathUtf8(utf16ToUtf8(materialPathW));
-    JsonObject material;
-    if (!parseVfsJson(parser, materialPath, material))
-        return false;
-
-    JsonArray passes;
-    if (!jsonTryGetArray(material, L"passes", passes) || passes.Size() == 0)
-        return false;
-
-    for (uint32_t i = 0; i < passes.Size(); ++i)
-    {
-        if (passes.GetAt(i).ValueType() != JsonValueType::Object)
-            continue;
-        JsonArray textures;
-        if (!jsonTryGetArray(passes.GetAt(i).GetObject(), L"textures", textures))
-            continue;
-        for (uint32_t j = 0; j < textures.Size(); ++j)
-        {
-            auto texValue = textures.GetAt(j);
-            if (texValue.ValueType() != JsonValueType::String)
-                continue;
-            if (resolveTexturePath(parser, dirnameUtf8(materialPath), texValue.GetString().c_str(), outPath))
-                return true;
-        }
-    }
-    return false;
-}
-
-static bool sceneAbsoluteOrigin(JsonObject const& obj, const std::unordered_map<int, JsonObject>& objectsById,
-                                double& x, double& y, double& z, int depth = 0)
-{
-    x = y = z = 0.0;
-    sceneTryGetVec3(obj, L"origin", x, y, z);
-    if (depth > 8 || !obj.HasKey(L"parent") || obj.GetNamedValue(L"parent").ValueType() != JsonValueType::Number)
-        return true;
-
-    const int parentId = static_cast<int>(obj.GetNamedValue(L"parent").GetNumber());
-    auto parentIt = objectsById.find(parentId);
-    if (parentIt == objectsById.end())
-        return true;
-
-    double px = 0.0, py = 0.0, pz = 0.0;
-    sceneAbsoluteOrigin(parentIt->second, objectsById, px, py, pz, depth + 1);
-    x += px;
-    y += py;
-    z += pz;
-    return true;
-}
-
-static bool calcSceneCompositeStatsFromPkg(const PkgParser& parser, double wPct, double hPct,
-                                           const WallpaperAlignmentSettings& alignment, double& outRoiAvg,
-                                           double& outRoiDark, double& outGlobalAvg, double& outGlobalDark,
-                                           std::wstring& outDecodeSummary)
-{
-    JsonObject scene;
-    if (!parseVfsJson(parser, "scene.json", scene))
-        return false;
-
-    JsonObject general, projection;
-    double canvasW = 0.0, canvasH = 0.0;
-    if (!jsonTryGetObject(scene, L"general", general) ||
-        !jsonTryGetObject(general, L"orthogonalprojection", projection) ||
-        !jsonTryGetNumber(projection, L"width", canvasW) || !jsonTryGetNumber(projection, L"height", canvasH) ||
-        canvasW <= 0.0 || canvasH <= 0.0)
-    {
-        return false;
-    }
-
-    double clearR = 0.0, clearG = 0.0, clearB = 0.0;
-    sceneTryGetVec3(general, L"clearcolor", clearR, clearG, clearB);
-
-    JsonArray objects;
-    if (!jsonTryGetArray(scene, L"objects", objects) || objects.Size() == 0)
-        return false;
-
-    std::unordered_map<int, JsonObject> objectsById;
-    for (uint32_t i = 0; i < objects.Size(); ++i)
-    {
-        if (objects.GetAt(i).ValueType() != JsonValueType::Object)
-            continue;
-        JsonObject obj = objects.GetAt(i).GetObject();
-        if (obj.HasKey(L"id") && obj.GetNamedValue(L"id").ValueType() == JsonValueType::Number)
-            objectsById.emplace(static_cast<int>(obj.GetNamedValue(L"id").GetNumber()), obj);
-    }
-
-    struct Sample
-    {
-        double x = 0.0;
-        double y = 0.0;
-        bool insideCanvas = true;
-        double r = 0.0;
-        double g = 0.0;
-        double b = 0.0;
-    };
-
-    const int w = static_cast<int>(canvasW);
-    const int h = static_cast<int>(canvasH);
-    const WallpaperPlacement placement = makeWallpaperPlacement(canvasW, canvasH, alignment);
-    const int displayW = (std::max)(1, static_cast<int>(placement.displayW + 0.5));
-    const int displayH = (std::max)(1, static_cast<int>(placement.displayH + 0.5));
-    const int roiW = (std::max)(1, static_cast<int>(placement.displayW * wPct));
-    const int roiH = (std::max)(1, static_cast<int>(placement.displayH * hPct));
-    const int roiX = (std::max)(0, displayW - roiW);
-    const int roiY = (std::max)(0, displayH - roiH);
-    const int step = 4;
-
-    std::vector<Sample> samples;
-    samples.reserve(static_cast<size_t>((roiW / step + 2) * (roiH / step + 2)));
-    for (int y = roiY; y < displayH; y += step)
-    {
-        for (int x = roiX; x < displayW; x += step)
-        {
-            double sx = 0.0, sy = 0.0;
-            const bool inside = mapDisplayToSource(placement, x + 0.5, y + 0.5, sx, sy);
-            samples.push_back(Sample{sx, sy, inside, clearR, clearG, clearB});
-        }
-    }
-    if (samples.empty())
-        return false;
-
-    int decodedLayerCount = 0;
-    std::vector<std::wstring> decodeFormats;
-
-    auto rememberFormat = [&](const std::wstring& fmt)
-    {
-        if (fmt.empty())
-            return;
-        for (const auto& existing : decodeFormats)
-        {
-            if (existing == fmt)
-                return;
-        }
-        decodeFormats.push_back(fmt);
-    };
-
-    const double* lut = GetSRGBLut();
-    for (uint32_t i = 0; i < objects.Size(); ++i)
-    {
-        if (objects.GetAt(i).ValueType() != JsonValueType::Object)
-            continue;
-        JsonObject obj = objects.GetAt(i).GetObject();
-        if (!sceneObjectVisible(obj))
-            continue;
-
-        double originX = 0.0, originY = 0.0, originZ = 0.0;
-        sceneAbsoluteOrigin(obj, objectsById, originX, originY, originZ);
-
-        double scaleX = 1.0, scaleY = 1.0, scaleZ = 1.0;
-        sceneTryGetVec3(obj, L"scale", scaleX, scaleY, scaleZ);
-        scaleX = std::abs(scaleX);
-        scaleY = std::abs(scaleY);
-
-        double sizeX = 0.0, sizeY = 0.0, sizeZ = 0.0;
-        sceneTryGetVec3(obj, L"size", sizeX, sizeY, sizeZ);
-        if (sizeX <= 0.0 || sizeY <= 0.0)
-            continue;
-
-        const double drawW = sizeX * scaleX;
-        const double drawH = sizeY * scaleY;
-        if (drawW <= 1.0 || drawH <= 1.0)
-            continue;
-
-        const double left = originX - drawW * 0.5;
-        const double top = originY - drawH * 0.5;
-        const double right = left + drawW;
-        const double bottom = top + drawH;
-        if (right < 0.0 || left > canvasW || bottom < 0.0 || top > canvasH)
-            continue;
-
-        const double objectAlpha = (std::max)(0.0, (std::min)(1.0, sceneReadScalar(obj, L"alpha", 1.0)));
-
-        std::wstring imagePathW;
-        jsonTryGetString(obj, L"image", imagePathW);
-        if (imagePathW.find(L"models/util/solidlayer.json") != std::wstring::npos)
-        {
-            double sr = 1.0, sg = 1.0, sb = 1.0;
-            sceneTryGetVec3(obj, L"color", sr, sg, sb);
-            for (Sample& sample : samples)
-            {
-                if (!sample.insideCanvas)
-                    continue;
-                if (sample.x < left || sample.x >= right || sample.y < top || sample.y >= bottom)
-                    continue;
-                sample.r = sr * objectAlpha + sample.r * (1.0 - objectAlpha);
-                sample.g = sg * objectAlpha + sample.g * (1.0 - objectAlpha);
-                sample.b = sb * objectAlpha + sample.b * (1.0 - objectAlpha);
-            }
-            decodedLayerCount++;
-            continue;
-        }
-
-        std::string texturePath;
-        if (!resolveObjectTexturePath(parser, obj, texturePath))
-            continue;
-
-        auto texIt = parser.GetVFS().find(texturePath);
-        if (texIt == parser.GetVFS().end())
-            continue;
-
-        PkgParser::RgbaImage img = parser.DecodeTexvToRGBA(texIt->second);
-        if (!img.IsValid())
-            continue;
-
-        const int imageW = (img.imageWidth > 0) ? img.imageWidth : img.width;
-        const int imageH = (img.imageHeight > 0) ? img.imageHeight : img.height;
-        if (imageW <= 0 || imageH <= 0)
-            continue;
-
-        double tintR = 1.0, tintG = 1.0, tintB = 1.0;
-        sceneTryGetVec3(obj, L"color", tintR, tintG, tintB);
-
-        for (Sample& sample : samples)
-        {
-            if (!sample.insideCanvas)
-                continue;
-            if (sample.x < left || sample.x >= right || sample.y < top || sample.y >= bottom)
-                continue;
-
-            const double u = (static_cast<double>(sample.x) - left) / drawW;
-            const double v = (static_cast<double>(sample.y) - top) / drawH;
-            const int tx = (std::max)(0, (std::min)(imageW - 1, static_cast<int>(u * imageW)));
-            const int ty = (std::max)(0, (std::min)(imageH - 1, static_cast<int>(v * imageH)));
-            const uint8_t* px =
-                img.pixels.data() + (static_cast<size_t>(ty) * static_cast<size_t>(img.width) + tx) * 4u;
-
-            const double alpha = (px[3] / 255.0) * objectAlpha;
-            if (alpha <= 0.001)
-                continue;
-            const double sr = (px[0] / 255.0) * tintR;
-            const double sg = (px[1] / 255.0) * tintG;
-            const double sb = (px[2] / 255.0) * tintB;
-            sample.r = sr * alpha + sample.r * (1.0 - alpha);
-            sample.g = sg * alpha + sample.g * (1.0 - alpha);
-            sample.b = sb * alpha + sample.b * (1.0 - alpha);
-        }
-
-        decodedLayerCount++;
-        rememberFormat(img.decodeFormat);
-    }
-
-    if (decodedLayerCount == 0)
-        return false;
-
-    double sumL = 0.0;
-    int dark = 0;
-    for (const Sample& sample : samples)
-    {
-        const int r = (std::max)(0, (std::min)(255, static_cast<int>(sample.r * 255.0 + 0.5)));
-        const int g = (std::max)(0, (std::min)(255, static_cast<int>(sample.g * 255.0 + 0.5)));
-        const int b = (std::max)(0, (std::min)(255, static_cast<int>(sample.b * 255.0 + 0.5)));
-        const double L = 0.2126 * lut[r] + 0.7152 * lut[g] + 0.0722 * lut[b];
-        sumL += L;
-        if (L < 0.179)
-            ++dark;
-    }
-
-    outRoiAvg = sumL / static_cast<double>(samples.size());
-    outRoiDark = static_cast<double>(dark) / static_cast<double>(samples.size());
-    outGlobalAvg = outRoiAvg;
-    outGlobalDark = outRoiDark;
-
-    outDecodeSummary.clear();
-    for (size_t i = 0; i < decodeFormats.size(); ++i)
-    {
-        if (i != 0)
-            outDecodeSummary += L"+";
-        outDecodeSummary += decodeFormats[i];
-    }
-    if (outDecodeSummary.empty())
-        outDecodeSummary = L"solid";
-    return true;
-}
 
 struct DiagCounters
 {
@@ -2580,7 +1604,7 @@ static EvalTaskResult EvaluateWallpaperHeavy(std::wstring dictKey, std::wstring 
             {
                 double rAvg = 0.0, rDark = 0.0, gAvg = 0.0, gDark = 0.0;
                 std::wstring decodeSummary;
-                if (calcSceneCompositeStatsFromPkg(parser, opt.trayRoiWidthPct, opt.trayRoiHeightPct, alignment, rAvg,
+                if (CalcSceneCompositeStatsFromPkg(parser, opt.trayRoiWidthPct, opt.trayRoiHeightPct, alignment, rAvg,
                                                    rDark, gAvg, gDark, decodeSummary))
                 {
                     { ClassifyFeatures _f; _f.roiAvg=rAvg; _f.roiDarkRatio=rDark; _f.globalAvg=gAvg; _f.globalDarkRatio=gDark; auto _cr=ClassifyByStats(_f); res.inferredTag=_cr.tag; }
@@ -2602,7 +1626,7 @@ static EvalTaskResult EvaluateWallpaperHeavy(std::wstring dictKey, std::wstring 
                                  parser.CalcStatsFromRgba(img, opt.trayRoiWidthPct, opt.trayRoiHeightPct, rAvg, rDark,
                                                           gAvg, gDark)) ||
                                 (alignment.custom &&
-                                 calcRgbaRoiStatsAligned(img, opt.trayRoiWidthPct, opt.trayRoiHeightPct, alignment,
+                                 CalcRgbaRoiStatsAligned(img, opt.trayRoiWidthPct, opt.trayRoiHeightPct, alignment,
                                                          rAvg, rDark, gAvg, gDark)))
                             {
                                 { ClassifyFeatures _f; _f.roiAvg=rAvg; _f.roiDarkRatio=rDark; _f.globalAvg=gAvg; _f.globalDarkRatio=gDark; auto _cr=ClassifyByStats(_f); res.inferredTag=_cr.tag; }
@@ -2617,20 +1641,12 @@ static EvalTaskResult EvaluateWallpaperHeavy(std::wstring dictKey, std::wstring 
         }
     }
     // =========================================================
-    // 3. 终极降级：WIC 缩略图像素测算
-    if (res.inferredTag == ThemeTag::Unknown && opt.enableTrayRoiL2)
-    {
-        std::wstring actualDir = getWallpaperDir(canonicalKey);
-        res.inferredTag = evaluateL2TrayRoi(actualDir, opt, alignment);
-        if (res.inferredTag != ThemeTag::Unknown)
-            res.alignmentApplied = alignment.custom;
-    }
-
+    // 3. 降级：schemecolor
     if (res.inferredTag == ThemeTag::Unknown && !pjPath.empty() && fileExists(pjPath))
     {
         std::wstring scheme;
         if (tryGetProjectJsonSchemecolor(pjPath, scheme))
-            res.inferredTag = classifyFromSchemecolor(scheme, opt.minContrastDelta);
+            res.inferredTag = ClassifyFromSchemecolor(scheme, opt.minContrastDelta);
             if (res.inferredTag == ThemeTag::Both)
                 res.inferredTag = ThemeTag::Light; // schemecolor Both -> Light
     }
@@ -2951,7 +1967,7 @@ UpdateResult ApplyAndSwitch(const ApplyOptions& opt)
         JsonObject entryObj = entryVal.GetObject();
         JsonObject monitor0;
         ensureMonitor0Object(entryObj, monitor0);
-        WallpaperAlignmentSettings alignment = readWallpaperAlignment(monitor0);
+        WallpaperAlignmentSettings alignment = ReadWallpaperAlignment(monitor0);
         r.wallpapersTotal++;
 
         ThemeTag tag = ThemeTag::Unknown;
@@ -3087,34 +2103,45 @@ UpdateResult ApplyAndSwitch(const ApplyOptions& opt)
                    << std::endl;
     }
 
-    // 获取 CPU 物理核心数，强制设定安全上限（避免爆内存，8 个并发足以吃满多数 CPU）
+    // 获取 CPU 物理核心数并发执行，设上限避免内存压力
     size_t maxThreads = std::thread::hardware_concurrency();
     if (maxThreads == 0)
         maxThreads = 4;
-    maxThreads = 4; // 当前策略固定串行，避免线程创建与缓存回收开销
+    if (maxThreads > 6)
+        maxThreads = 6;
 
-    // 分批次 (Chunk) 发射任务
+    // 分批次 (Chunk) 并发发射任务
     for (size_t i = 0; i < pendingTasks.size(); i += maxThreads)
     {
         size_t batchEnd = (std::min<size_t>)(i + maxThreads, pendingTasks.size());
 
-        std::vector<EvalTaskResult> batchResults(batchEnd - i);
+        std::vector<std::future<EvalTaskResult>> futures;
+        futures.reserve(batchEnd - i);
 
         for (size_t j = i; j < batchEnd; ++j)
         {
-            const size_t localIdx = j - i;
-            const auto& task = pendingTasks[j];
-            batchResults[localIdx] =
-                EvaluateWallpaperHeavy(task.rawKey, task.canonicalKey, task.wpId, task.pjPath, task.isNew, opt,
-                                       task.alignment);
+            futures.push_back(std::async(std::launch::async,
+                [rawKey     = pendingTasks[j].rawKey,
+                 canonicalKey = pendingTasks[j].canonicalKey,
+                 wpId       = pendingTasks[j].wpId,
+                 pjPath     = pendingTasks[j].pjPath,
+                 isNew      = pendingTasks[j].isNew,
+                 alignment  = pendingTasks[j].alignment,
+                 opt]() {
+                    return EvaluateWallpaperHeavy(rawKey, canonicalKey, wpId, pjPath, isNew, opt, alignment);
+                }));
         }
-        // =========================================================
-        // 【终极修复 2】击碎 Windows 系统的“文件缓存假象”！
+
+        // 收集本批次所有结果
+        std::vector<EvalTaskResult> batchResults;
+        batchResults.reserve(futures.size());
+        for (auto& f : futures)
+            batchResults.push_back(f.get());
+
         // 强制操作系统立刻没收当前进程占用的所有映射文件和视频物理缓冲
-        // =========================================================
         SetProcessWorkingSetSize(GetCurrentProcess(), (SIZE_T)-1, (SIZE_T)-1);
 
-        // 3. 线程死绝后，内存已清空，主线程安全地将结果写入 JSON
+        // 主线程安全地将结果写入 JSON (串行，无竞态)
         for (auto& res : batchResults)
         {
             if (res.inferredTag == ThemeTag::Unknown)
@@ -3270,3 +2297,4 @@ UpdateResult ApplyAndSwitch(const ApplyOptions& opt)
     return r;
 }
 } // namespace sts::we
+

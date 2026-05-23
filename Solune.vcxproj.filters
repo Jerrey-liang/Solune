@@ -24,7 +24,16 @@
     <ClCompile Include="Solune.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="WeAlign.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="WeClassify.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
     <ClCompile Include="WeConfigManager.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="WeScene.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="lz4.c">
@@ -41,7 +50,16 @@
     <ClInclude Include="StringConvert.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="WeAlign.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="WeClassify.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
     <ClInclude Include="WeConfigManager.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="WeScene.h">
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="bcdec.h">
