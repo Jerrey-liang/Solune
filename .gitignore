@@ -363,3 +363,8 @@ MigrationBackup/
 FodyWeavers.xsd
 /工具
 /.claude
+/_miku_export2
+/_miku_export
+/_miku_render
+/_export_pkg.cpp
+/_export_pkg.exe
