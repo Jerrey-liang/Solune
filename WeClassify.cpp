@@ -145,9 +145,6 @@ bool CalcRgbaRoiStatsAligned(const PkgParser::RgbaImage& img, double wPct, doubl
     return true;
 }
 
-// ============================================================
-// Schemecolor helpers
-// ============================================================
 static bool parseSchemecolor3(const std::wstring& s, double& r, double& g, double& b)
 {
     r = g = b = 0.0;

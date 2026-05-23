@@ -23,21 +23,14 @@ using namespace winrt::Windows::Data::Json;
 namespace sts::we
 {
 
-// ---------------------------------------------------------------------------
-// Internal helpers — originally part of WeConfigManager.cpp
-// Declared here and resolved at link time.
-// ---------------------------------------------------------------------------
+// Forward declarations — resolved by linker from WeConfigManager / WeClassify
 std::string     utf16ToUtf8(const std::wstring& ws);
-
 bool jsonTryGetString(JsonObject const& obj, const std::wstring& key, std::wstring& out);
 bool jsonTryGetArray (JsonObject const& obj, const std::wstring& key, JsonArray& out);
 bool jsonTryGetObject(JsonObject const& obj, const std::wstring& key, JsonObject& out);
 bool jsonTryGetNumber(JsonObject const& obj, const std::wstring& key, double& out);
-
-// Forward from WeClassify — the linker will resolve them.
 const double* GetSRGBLut();
 
-// ---------------------------------------------------------------------------
 static bool parseVec3String(const std::wstring& s, double& x, double& y, double& z)
 {
     x = y = z = 0.0;
@@ -330,8 +323,6 @@ static void applyColorBlendMode(int mode, double tR, double tG, double tB, doubl
         auto softLightCh = [](double c, double t) {
             return (t < 0.5) ? (c - (1.0 - 2.0 * t) * c * (1.0 - c))
                              : (c + (2.0 * t - 1.0) * ((c <= 0.25) ? ((16.0 * c - 12.0) * c + 4.0) * c : std::sqrt(c)) - c);
-            // simpler approximation:
-            // double m = (c < 0.5) ? (2.0 * c * t + c * c * (1.0 - 2.0 * t)) : (2.0 * t * (1.0 - c) + std::sqrt(c) * (2.0 * t - 1.0));
         };
         cR = softLightCh(cR, tR);
         cG = softLightCh(cG, tG);
@@ -639,7 +630,6 @@ bool TestCalcSceneComposite(const std::wstring& pkgPath,
                                           outDecodeSummary);
 }
 
-// ---- WIC PNG writer (used by RenderSceneCompositeToPng) ------------------
 static bool writeRgbaToPngFile(const uint8_t* rgba, int w, int h, const std::wstring& outPath)
 {
     winrt::com_ptr<IWICImagingFactory> factory;
@@ -716,7 +706,7 @@ bool RenderSceneCompositeToPng(const std::wstring& pkgPath, const std::wstring& 
     if (!parser.Parse(pkgPath))
         return false;
 
-    // --- Parse scene.json --------------------------------------------------
+    // Parse scene.json
     JsonObject scene;
     if (!parseVfsJson(parser, "scene.json", scene))
         return false;
@@ -746,7 +736,7 @@ bool RenderSceneCompositeToPng(const std::wstring& pkgPath, const std::wstring& 
             objectsById.emplace(static_cast<int>(obj.GetNamedValue(L"id").GetNumber()), obj);
     }
 
-    // --- Allocate full-canvas RGBA buffer ----------------------------------
+    // Allocate full-canvas RGBA buffer
     const int cw = static_cast<int>(canvasW);
     const int ch = static_cast<int>(canvasH);
     const size_t bufSize = static_cast<size_t>(cw) * static_cast<size_t>(ch) * 4u;
@@ -764,7 +754,7 @@ bool RenderSceneCompositeToPng(const std::wstring& pkgPath, const std::wstring& 
         buf[i + 3] = 255;
     }
 
-    // --- Composite layers back-to-front ------------------------------------
+    // Composite layers back-to-front
     int decodedLayerCount = 0;
     int skippedLayerCount = 0;
     int skippedNotVisible = 0;
@@ -880,43 +870,7 @@ bool RenderSceneCompositeToPng(const std::wstring& pkgPath, const std::wstring& 
 
         const double objectAlpha = (std::max)(0.0, (std::min)(1.0, sceneReadScalar(obj, L"alpha", 1.0)));
 
-        // Debug: print first 40 decoded layers with positions
-        if (decodedLayerCount < 40)
-        {
-            double cr = 1.0, cg = 1.0, cb = 1.0;
-            sceneTryGetVec3(obj, L"color", cr, cg, cb);
-            bool isSolid = (imagePathW.find(L"models/util/solidlayer.json") != std::wstring::npos);
-            bool isCompose = (imagePathW.find(L"models/util/composelayer.json") != std::wstring::npos);
-
-            ResolvedTexInfo texInfo;
-            bool hasTex = resolveObjectTexturePath(parser, obj, texInfo);
-
-            // Extract just the filename
-            std::wstring shortImg = imagePathW;
-            size_t lastSlash = shortImg.find_last_of(L'/');
-            if (lastSlash != std::wstring::npos && lastSlash + 1 < shortImg.size())
-                shortImg = shortImg.substr(lastSlash + 1);
-
-            std::wcout << L"  [" << decodedLayerCount << L"] " << shortImg;
-            if (isSolid) std::wcout << L" [SOLID]";
-            if (isCompose) std::wcout << L" [COMPOSE]";
-            if (hasTex) {
-                std::wstring wTex = sts::WStringFromUtf8(texInfo.path);
-                size_t ls = wTex.find_last_of(L'/');
-                if (ls != std::wstring::npos) wTex = wTex.substr(ls + 1);
-                std::wcout << L" tex=" << wTex;
-            } else if (!isSolid && !isCompose) {
-                std::wcout << L" tex=NONE";
-            }
-            std::wcout << L" tint=(" << cr << L"," << cg << L"," << cb << L")"
-                       << L" blend=" << sceneReadColorBlendMode(obj)
-                       << L" a=" << objectAlpha
-                       << L" pos=(" << (int)originX << L"," << (int)originY << L")"
-                       << L" sz=(" << (int)drawW << L"," << (int)drawH << L")"
-                       << std::endl;
-        }
-
-        // Helper: scan effect passes for color constants (e.g. audio bars "Bar Color")
+        // Scan effect passes for color constants (e.g. audio bars "Bar Color")
         auto tryExtractEffectColor = [](JsonObject const& o) -> std::optional<std::tuple<double,double,double>> {
             JsonArray effects;
             if (!jsonTryGetArray(o, L"effects", effects)) return std::nullopt;
@@ -949,7 +903,7 @@ bool RenderSceneCompositeToPng(const std::wstring& pkgPath, const std::wstring& 
             return std::nullopt;
         };
 
-        // --- Solid layer (WE solidlayer or empty "A" placeholder) ---
+        // Solid layer
         bool isSolid = (imagePathW.find(L"models/util/solidlayer.json") != std::wstring::npos);
         bool isEmptyA = (imagePathW == L"A" || imagePathW.empty() ||
                          (imagePathW.size() == 1 && imagePathW[0] == L'A'));
@@ -1007,7 +961,7 @@ bool RenderSceneCompositeToPng(const std::wstring& pkgPath, const std::wstring& 
             continue;
         }
 
-        // --- Textured layer ---
+        // Textured layer
         ResolvedTexInfo texInfo;
         if (!resolveObjectTexturePath(parser, obj, texInfo))
         {
@@ -1036,32 +990,6 @@ bool RenderSceneCompositeToPng(const std::wstring& pkgPath, const std::wstring& 
         const int imageH = (img.imageHeight > 0) ? img.imageHeight : img.height;
         if (imageW <= 0 || imageH <= 0)
             continue;
-
-        // Debug: sample center pixel of first 8 decoded textures
-        if (decodedLayerCount < 8)
-        {
-            const int cx = imageW / 2;
-            const int cy = imageH / 2;
-            const size_t centOff = (static_cast<size_t>(cy) * static_cast<size_t>(img.width) + cx) * 4u;
-            std::wcout << L"    [tex-sample] center(" << cx << L"," << cy << L") R="
-                       << static_cast<int>(img.pixels[centOff + 0])
-                       << L" G=" << static_cast<int>(img.pixels[centOff + 1])
-                       << L" B=" << static_cast<int>(img.pixels[centOff + 2])
-                       << L" A=" << static_cast<int>(img.pixels[centOff + 3])
-                       << L" format=" << img.decodeFormat
-                       << L" srcW=" << img.width << L" imgW=" << imageW << L" imgH=" << imageH
-                       << std::endl;
-            // Also sample corners
-            const int tx = (std::min)(10, imageW - 1);
-            const int ty = (std::min)(10, imageH - 1);
-            const size_t tlOff = (static_cast<size_t>(ty) * static_cast<size_t>(img.width) + tx) * 4u;
-            std::wcout << L"    [tex-sample] corner(" << tx << L"," << ty << L") R="
-                       << static_cast<int>(img.pixels[tlOff + 0])
-                       << L" G=" << static_cast<int>(img.pixels[tlOff + 1])
-                       << L" B=" << static_cast<int>(img.pixels[tlOff + 2])
-                       << L" A=" << static_cast<int>(img.pixels[tlOff + 3])
-                       << std::endl;
-        }
 
         double tintR = 1.0, tintG = 1.0, tintB = 1.0;
         sceneTryGetVec3(obj, L"color", tintR, tintG, tintB);
@@ -1131,11 +1059,11 @@ bool RenderSceneCompositeToPng(const std::wstring& pkgPath, const std::wstring& 
                << L" texDecodeFail=" << skippedTexDecodeFail
                << std::endl;
 
-    // --- Save PNG -----------------------------------------------------------
+    // Save as PNG
     if (!writeRgbaToPngFile(buf.data(), cw, ch, outPngPath))
         return false;
 
-    // --- Calculate stats (full-frame = both ROI and global) ----------------
+    // Calculate stats (full-frame)
     const double* lut = GetSRGBLut();
     double sumL = 0.0;
     int darkCount = 0;
@@ -1153,7 +1081,7 @@ bool RenderSceneCompositeToPng(const std::wstring& pkgPath, const std::wstring& 
     outRoiAvg = outGlobalAvg;
     outRoiDark = outGlobalDark;
 
-    // --- Build decode summary -----------------------------------------------
+    // Build decode summary
     outDecodeSummary.clear();
     for (size_t i = 0; i < decodeFormats.size(); ++i)
     {

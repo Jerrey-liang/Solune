@@ -9,7 +9,6 @@
 #include <iostream>
 #include <winrt/Windows.Foundation.h>
 
-/** 初始化 WinRT 环境并启动应用入口。 */
 int main()
 {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);

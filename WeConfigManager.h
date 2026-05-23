@@ -104,7 +104,6 @@ namespace sts::we
 
     UpdateResult ApplyAndSwitch(const ApplyOptions& opt);
 
-    // ---- Utility functions exposed for sub-modules (WeAlign / WeClassify / WeScene) ----
     std::string utf16ToUtf8(const std::wstring& ws);
     std::wstring normalizeSlashes(std::wstring s);
     bool        fileExists(const std::wstring& p);

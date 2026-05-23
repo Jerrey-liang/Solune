@@ -55,9 +55,7 @@ using winrt::Windows::Data::Json::JsonObject;
 using winrt::Windows::Data::Json::JsonValue;
 using winrt::Windows::Data::Json::JsonValueType;
 
-// ============================================================
-// 提前声明区
-// ============================================================
+// Forward declarations
 
 static bool isProcessRunningByName(const wchar_t* exeName);
 static bool isWallpaperEngineRunning();
@@ -93,9 +91,6 @@ static bool tryGetProjectJsonSchemecolor(const std::wstring& pj, std::wstring& o
 static bool tryGetMainWallpaperKeyFromProjectJson(const std::wstring& pj, std::wstring& outKey);
 bool jsonTryGetNumber(JsonObject const& obj, const std::wstring& key, double& out);
 
-// ============================================================
-// 基础工具函数
-// ============================================================
 static std::wstring toLower(std::wstring s)
 {
     std::transform(s.begin(), s.end(), s.begin(),
@@ -614,9 +609,7 @@ static std::wstring detectProfileKey(JsonObject const& root)
 }
 
 
-// ============================================================
-// 【新增】生成无污染的纯净同步备份 (安全遍历版，修复崩溃地雷)
-// ============================================================
+// Snapshot config.json without our classification tags
 static void backupCleanConfig(const ApplyOptions& opt, const JsonObject& originalRoot)
 {
     std::wcout << L"\n  [备份防护] 正在生成纯净版 config.json.bak..." << std::endl;
@@ -635,13 +628,11 @@ static void backupCleanConfig(const ApplyOptions& opt, const JsonObject& origina
         {
             JsonObject profileObj = clone.GetNamedValue(profileKey).GetObject();
 
-            // ==========================================
-            // 净化任务 A：剥离壁纸的自定义标签
-            // ==========================================
+            // Strip wallpaper properties we added
             JsonObject wprops;
             if (jsonTryGetObject(profileObj, L"wproperties", wprops))
             {
-                // 【修复核心】先收集所有 Key，绝不在迭代器中直接修改集合！
+                // Collect keys before modifying the collection
                 std::vector<std::wstring> keys;
                 for (auto const& kv : wprops)
                 {
@@ -679,9 +670,7 @@ static void backupCleanConfig(const ApplyOptions& opt, const JsonObject& origina
                 profileObj.SetNamedValue(L"wproperties", wrapObjectValue(wprops));
             }
 
-            // ==========================================
-            // 净化任务 B：抹除我们生成的播放列表
-            // ==========================================
+            // Remove playlists we created
             JsonObject general;
             if (jsonTryGetObject(profileObj, L"general", general))
             {
@@ -775,7 +764,6 @@ static bool calcVideoRoiStatsMF(const std::wstring& videoPath, double wPct, doub
         return false;
     }
     pAttributes->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE);
-    // 【终极内存防线 3】禁止 MF 引擎为了流畅播放而在底层疯狂开辟内存池预读缓冲！
     pAttributes->SetUINT32(MF_SOURCE_READER_DISABLE_DXVA, TRUE);
     winrt::com_ptr<IMFSourceReader> pReader;
     if (FAILED(MFCreateSourceReaderFromURL(videoPath.c_str(), pAttributes.get(), pReader.put())))
@@ -934,7 +922,6 @@ static bool calcVideoRoiStatsMF(const std::wstring& videoPath, double wPct, doub
     outRoiDark = static_cast<double>(darkRoi) / static_cast<double>(roiCount);
 
     // 解锁与清理
-    // 【终极内存防线 4】主动解除内存锁定，强杀 COM 指针，不给系统留任何延迟释放的借口
     pBuffer->Unlock();
     pBuffer = nullptr;
     pSample = nullptr;
@@ -942,9 +929,6 @@ static bool calcVideoRoiStatsMF(const std::wstring& videoPath, double wPct, doub
     return true;
 }
 
-// ============================================================
-// 静态打标 (Pass 1 & Pass 2)
-// ============================================================
 static bool tryGetProjectJsonSchemecolor(const std::wstring& pj, std::wstring& outScheme)
 {
     std::string text;
@@ -1465,30 +1449,11 @@ bool jsonTryGetNumber(JsonObject const& obj, const std::wstring& key, double& ou
 
 
 
-// Apply WE scene.json "colorBlendMode" to a texture pixel.
-// cR/cG/cB = texture pixel (0..1), tR/tG/tB = layer color property (0..1).
-// Returns the blended pixel channels (R, G, B).
-// Mapping from WE scene format values to standard blend equations:
-//   0 = multiply (default multiplicative tint; WE "Normal"/default behavior)
-//   1 = additive / linear dodge
-//   2 = subtract
-//   3 = screen
-//   4 = overlay
-//   5 = soft light
-//   6 = hard light
-//   7 = color dodge
-//   8 = color burn
-//   9 = darken
-//  10 = lighten
-//  11 = difference
-//  12 = multiply (empirically determined: used with grey tint on reflection layers)
-// Note: the exact WE colorBlendMode mapping is not publicly documented.
-// Modes 1-11 use standard blend ordering; mode 12 was determined from scene analysis.
 
 
 
 
-// ---- WIC PNG writer (used by RenderSceneCompositeToPng) ------------------
+
 
 
 struct DiagCounters
@@ -1531,9 +1496,6 @@ static void scanProjectJsonUnderRoot(const std::wstring& rootDir, std::vector<st
     FindClose(h);
 }
 
-// ===========================================================
-// 【新增】多线程纯计算单元 (绝对不碰 JSON)
-// ============================================================
 struct EvalTaskResult
 {
     std::wstring dictKey;      // wprops 里的原始键名
@@ -1589,9 +1551,7 @@ static EvalTaskResult EvaluateWallpaperHeavy(std::wstring dictKey, std::wstring 
         }
     }
 
-    // =========================================================
-    // 3. 【新增装载】终极防线：极速内存硬解 scene.pkg
-    // =========================================================
+    // Scene PKG analysis
     if (res.inferredTag == ThemeTag::Unknown)
     {
         std::wstring actualDir = getWallpaperDir(canonicalKey);
@@ -1640,8 +1600,7 @@ static EvalTaskResult EvaluateWallpaperHeavy(std::wstring dictKey, std::wstring 
             }
         }
     }
-    // =========================================================
-    // 3. 降级：schemecolor
+    // Fallback: schemecolor classification
     if (res.inferredTag == ThemeTag::Unknown && !pjPath.empty() && fileExists(pjPath))
     {
         std::wstring scheme;
@@ -1654,9 +1613,6 @@ static EvalTaskResult EvaluateWallpaperHeavy(std::wstring dictKey, std::wstring 
     return res;
 }
 
-// ============================================================
-// 【新增】用于延迟调度的受控并发任务结构体
-// ============================================================
 struct EvalTaskParams
 {
     std::wstring rawKey;
@@ -1667,9 +1623,7 @@ struct EvalTaskParams
     WallpaperAlignmentSettings alignment;
 };
 
-// ============================================================
-// Core Apply
-// ============================================================
+// ApplyAndSwitch
 UpdateResult ApplyAndSwitch(const ApplyOptions& opt)
 {
     UpdateResult r;
@@ -1679,9 +1633,7 @@ UpdateResult ApplyAndSwitch(const ApplyOptions& opt)
         return r;
     }
 
-    // =========================================================
-    // 【终极修复 1】全局单次启动媒体引擎，彻底粉碎多线程反复初始化带来的底层残留
-    // =========================================================
+    // Single MFStartup to avoid per-thread re-init issues
     struct GlobalMFGuard
     {
         bool ok;
@@ -1695,7 +1647,6 @@ UpdateResult ApplyAndSwitch(const ApplyOptions& opt)
                 MFShutdown();
         }
     } globalMFGuard;
-    // =========================================================
 
     DiagCounters diag{};
     winrt::init_apartment();
@@ -1973,7 +1924,7 @@ UpdateResult ApplyAndSwitch(const ApplyOptions& opt)
         ThemeTag tag = ThemeTag::Unknown;
         bool hasTag = tryReadThemeTag(monitor0, tag);
 
-        // --- 【新增第二处】侦测用户手动修改：移动或踢出 ---
+        // Detect manual user changes (move or remove from playlist)
         const std::wstring wallpaperCompareKey = canonicalPathCompareKey(wallpaperKey);
         const std::wstring wallpaperDirCompareKey = canonicalPathCompareKey(getWallpaperDir(wallpaperKey));
         bool inLight = currentLightSet.count(wallpaperCompareKey) > 0 ||
@@ -1981,7 +1932,7 @@ UpdateResult ApplyAndSwitch(const ApplyOptions& opt)
         bool inDark = currentDarkSet.count(wallpaperCompareKey) > 0 ||
                       currentDarkDirSet.count(wallpaperDirCompareKey) > 0;
 
-        // --- 【新增1】读取是否已有免死金牌 ---
+        // Check for user-override flag
         bool userOverridden = false;
         if (monitor0.HasKey(L"sts_user_override"))
         {
@@ -1991,8 +1942,6 @@ UpdateResult ApplyAndSwitch(const ApplyOptions& opt)
                 userOverridden = true;
             }
         }
-        // ------------------------------------
-
         ThemeTag userTag = ThemeTag::Unknown;
 
         if (hasTag && tag != ThemeTag::Ignore)
@@ -2021,9 +1970,8 @@ UpdateResult ApplyAndSwitch(const ApplyOptions& opt)
             hasTag = true;
             userOverridden = true;
             writeThemeTag(monitor0, tag);
-            // --- 【新增2】颁发免死金牌并永久存入 JSON ---
+            // Write user-override flag to JSON
             monitor0.SetNamedValue(L"sts_user_override", JsonValue::CreateBooleanValue(true));
-            // ---------------------------------------------
             r.changed = true;
             if (opt.printDiagnostics)
             {
@@ -2040,7 +1988,7 @@ UpdateResult ApplyAndSwitch(const ApplyOptions& opt)
         }
         else
         {
-            // 【修改】将重度计算推入多线程后台，主线程直接 continue 放过它
+            // Defer heavy evaluation to background threads
             std::wstring dir = getWallpaperDir(wallpaperKey);
             std::wstring pj = dir.empty() ? L"" : (normalizeSlashes(dir) + L"/project.json");
 
@@ -2094,9 +2042,7 @@ UpdateResult ApplyAndSwitch(const ApplyOptions& opt)
         existingDirsByPathKey.emplace(dirKey, mainKey);
     }
 
-    // ==========================================================
-    // 【修改】第三阶段：受控并发执行 (彻底解决内存爆炸问题)
-    // ==========================================================
+    // Phase 3: concurrent batch evaluation
     if (!pendingTasks.empty() && opt.printDiagnostics)
     {
         std::wcout << L"  [并发调度] 共收集 " << pendingTasks.size() << L" 个重度测算任务，开始受控分批执行..."
@@ -2201,8 +2147,6 @@ UpdateResult ApplyAndSwitch(const ApplyOptions& opt)
             }
         }
     }
-    // ==========================================================
-
     if (playlistsMutated)
     {
         r.playlistsUpdated = true;
