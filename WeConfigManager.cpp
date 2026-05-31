@@ -87,7 +87,6 @@ static bool isActivePlaylistSuitableForTheme(JsonObject const& general, JsonArra
 static bool setActivePlaylist(JsonObject& general, JsonArray const& playlists, const std::wstring& playlistName,
                               bool& changed);
 
-static bool tryGetProjectJsonSchemecolor(const std::wstring& pj, std::wstring& outScheme);
 static bool tryGetMainWallpaperKeyFromProjectJson(const std::wstring& pj, std::wstring& outKey);
 bool jsonTryGetNumber(JsonObject const& obj, const std::wstring& key, double& out);
 
@@ -925,7 +924,7 @@ static bool calcVideoRoiStatsMF(const std::wstring& videoPath, double wPct, doub
     return true;
 }
 
-static bool tryGetProjectJsonSchemecolor(const std::wstring& pj, std::wstring& outScheme)
+bool TryReadProjectJsonSchemecolor(const std::wstring& pj, std::wstring& outScheme)
 {
     std::string text;
     if (!readAllTextUtf8(pj, text))
@@ -1542,8 +1541,12 @@ static EvalTaskResult EvaluateWallpaperHeavy(std::wstring dictKey, std::wstring 
             {
                 double rAvg = 0.0, rDark = 0.0, gAvg = 0.0, gDark = 0.0;
                 std::wstring decodeSummary;
+
+                std::wstring schemecolor;
+                TryReadProjectJsonSchemecolor(pjPath, schemecolor);
+
                 if (CalcSceneCompositeStatsFromPkg(parser, opt.trayRoiWidthPct, opt.trayRoiHeightPct, alignment, rAvg,
-                                                   rDark, gAvg, gDark, decodeSummary))
+                                                   rDark, gAvg, gDark, decodeSummary, schemecolor))
                 {
                     { ClassifyFeatures _f; _f.roiAvg=rAvg; _f.roiDarkRatio=rDark; _f.globalAvg=gAvg; _f.globalDarkRatio=gDark; auto _cr=ClassifyByStats(_f); res.inferredTag=_cr.tag; }
                     res.pkgParsed = true;
@@ -1561,12 +1564,8 @@ static EvalTaskResult EvaluateWallpaperHeavy(std::wstring dictKey, std::wstring 
                         if (img.IsValid())
                         {
                             double fillLuminance = 0.0;
-                            if (alignment.custom)
-                            {
-                                std::wstring scheme;
-                                if (tryGetProjectJsonSchemecolor(pjPath, scheme))
-                                    fillLuminance = SchemecolorToLuminance(scheme);
-                            }
+                            if (alignment.custom && !schemecolor.empty())
+                                fillLuminance = SchemecolorToLuminance(schemecolor);
                             if ((!alignment.custom &&
                                  parser.CalcStatsFromRgba(img, opt.trayRoiWidthPct, opt.trayRoiHeightPct, rAvg, rDark,
                                                           gAvg, gDark)) ||
@@ -1589,7 +1588,7 @@ static EvalTaskResult EvaluateWallpaperHeavy(std::wstring dictKey, std::wstring 
     if (res.inferredTag == ThemeTag::Unknown && !pjPath.empty() && fileExists(pjPath))
     {
         std::wstring scheme;
-        if (tryGetProjectJsonSchemecolor(pjPath, scheme))
+        if (TryReadProjectJsonSchemecolor(pjPath, scheme))
             res.inferredTag = ClassifyFromSchemecolor(scheme, opt.minContrastDelta);
     }
 

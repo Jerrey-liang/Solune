@@ -388,7 +388,8 @@ static int sceneReadColorBlendMode(JsonObject const& obj)
 bool CalcSceneCompositeStatsFromPkg(const PkgParser& parser, double wPct, double hPct,
                                            const WallpaperAlignmentSettings& alignment, double& outRoiAvg,
                                            double& outRoiDark, double& outGlobalAvg, double& outGlobalDark,
-                                           std::wstring& outDecodeSummary)
+                                           std::wstring& outDecodeSummary,
+                                           const std::wstring& schemecolor)
 {
     JsonObject scene;
     if (!parseVfsJson(parser, "scene.json", scene))
@@ -406,6 +407,8 @@ bool CalcSceneCompositeStatsFromPkg(const PkgParser& parser, double wPct, double
 
     double clearR = 0.0, clearG = 0.0, clearB = 0.0;
     sceneTryGetVec3(general, L"clearcolor", clearR, clearG, clearB);
+    if (!schemecolor.empty())
+        ParseSchemecolorRGB(schemecolor, clearR, clearG, clearB);
 
     JsonArray objects;
     if (!jsonTryGetArray(scene, L"objects", objects) || objects.Size() == 0)
@@ -621,10 +624,14 @@ bool TestCalcSceneComposite(const std::wstring& pkgPath,
     if (!parser.Parse(pkgPath))
         return false;
     WallpaperAlignmentSettings alignment{};
+    std::wstring schemecolor;
+    std::wstring pjPath = joinPath(getWallpaperDir(pkgPath), L"project.json");
+    TryReadProjectJsonSchemecolor(pjPath, schemecolor);
     return CalcSceneCompositeStatsFromPkg(parser, wPct, hPct, alignment,
                                           outRoiAvg, outRoiDark,
                                           outGlobalAvg, outGlobalDark,
-                                          outDecodeSummary);
+                                          outDecodeSummary,
+                                          schemecolor);
 }
 
 static bool writeRgbaToPngFile(const uint8_t* rgba, int w, int h, const std::wstring& outPath)
@@ -698,7 +705,8 @@ bool RenderSceneCompositeToPng(const std::wstring& pkgPath, const std::wstring& 
                                double& outRoiAvg, double& outRoiDark,
                                double& outGlobalAvg, double& outGlobalDark,
                                std::wstring& outDecodeSummary,
-                               const WallpaperAlignmentSettings& alignment)
+                               const WallpaperAlignmentSettings& alignment,
+                               const std::wstring& schemecolor)
 {
     PkgParser parser;
     if (!parser.Parse(pkgPath))
@@ -719,6 +727,8 @@ bool RenderSceneCompositeToPng(const std::wstring& pkgPath, const std::wstring& 
 
     double clearR = 0.0, clearG = 0.0, clearB = 0.0;
     sceneTryGetVec3(general, L"clearcolor", clearR, clearG, clearB);
+    if (!schemecolor.empty())
+        ParseSchemecolorRGB(schemecolor, clearR, clearG, clearB);
 
     JsonArray objects;
     if (!jsonTryGetArray(scene, L"objects", objects) || objects.Size() == 0)

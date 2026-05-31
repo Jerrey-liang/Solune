@@ -84,7 +84,10 @@ int main()
 
         double roiAvg = 0, roiDark = 0, globalAvg = 0, globalDark = 0;
         std::wstring decodeSummary;
-        if (sts::we::RenderSceneCompositeToPng(pkgPath, outPath, roiAvg, roiDark, globalAvg, globalDark, decodeSummary, alignment))
+        std::wstring pjPath = sts::we::joinPath(sts::we::getWallpaperDir(pkgPath), L"project.json");
+        std::wstring schemecolor;
+        sts::we::TryReadProjectJsonSchemecolor(pjPath, schemecolor);
+        if (sts::we::RenderSceneCompositeToPng(pkgPath, outPath, roiAvg, roiDark, globalAvg, globalDark, decodeSummary, alignment, schemecolor))
         {
             std::wcout << L"\nRendered and saved." << std::endl;
             std::wcout << L"  Decode summary: " << decodeSummary << std::endl;

@@ -117,4 +117,6 @@ namespace sts::we
 
     const wchar_t* ThemeTagToString(ThemeTag t);
     ThemeTag ThemeTagFromString(const std::wstring& s);
+
+    bool TryReadProjectJsonSchemecolor(const std::wstring& projectJsonPath, std::wstring& outScheme);
 }

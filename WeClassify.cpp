@@ -146,7 +146,7 @@ bool CalcRgbaRoiStatsAligned(const PkgParser::RgbaImage& img, double wPct, doubl
     return true;
 }
 
-static bool parseSchemecolor3(const std::wstring& s, double& r, double& g, double& b)
+bool ParseSchemecolorRGB(const std::wstring& s, double& r, double& g, double& b)
 {
     r = g = b = 0.0;
     int n = swscanf_s(s.c_str(), L"%lf %lf %lf", &r, &g, &b);
@@ -189,7 +189,7 @@ static double rgbToHueDeg(double r01, double g01, double b01)
 ThemeTag ClassifyFromSchemecolor(const std::wstring& sc, double)
 {
     double r, g, b;
-    if (!parseSchemecolor3(sc, r, g, b))
+    if (!ParseSchemecolorRGB(sc, r, g, b))
         return ThemeTag::Unknown;
     const double L = relativeLuminance(r, g, b), hue = rgbToHueDeg(r, g, b);
     const bool isCool = (hue >= 180.0 && hue <= 270.0), isWarm = (hue >= 320.0 || hue <= 40.0);
@@ -204,7 +204,7 @@ ThemeTag ClassifyFromSchemecolor(const std::wstring& sc, double)
 double SchemecolorToLuminance(const std::wstring& sc)
 {
     double r, g, b;
-    if (!parseSchemecolor3(sc, r, g, b))
+    if (!ParseSchemecolorRGB(sc, r, g, b))
         return 0.0;
     return relativeLuminance(r, g, b);
 }

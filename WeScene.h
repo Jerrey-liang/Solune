@@ -16,13 +16,15 @@ struct ResolvedTexInfo
 bool CalcSceneCompositeStatsFromPkg(const PkgParser& parser, double wPct, double hPct,
                                     const WallpaperAlignmentSettings& alignment, double& outRoiAvg,
                                     double& outRoiDark, double& outGlobalAvg, double& outGlobalDark,
-                                    std::wstring& outDecodeSummary);
+                                    std::wstring& outDecodeSummary,
+                                    const std::wstring& schemecolor = L"");
 
 bool RenderSceneCompositeToPng(const std::wstring& pkgPath, const std::wstring& outPngPath,
                                double& outAvgLuminance, double& outDarkRatio,
                                double& outGlobalAvg, double& outGlobalDark,
                                std::wstring& outDecodeSummary,
-                               const WallpaperAlignmentSettings& alignment = WallpaperAlignmentSettings{});
+                               const WallpaperAlignmentSettings& alignment = WallpaperAlignmentSettings{},
+                               const std::wstring& schemecolor = L"");
 
 bool TestCalcSceneComposite(const std::wstring& pkgPath,
                             double wPct, double hPct,

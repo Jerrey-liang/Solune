@@ -8,6 +8,7 @@ namespace sts::we
 ClassifyResult ClassifyByStats(const ClassifyFeatures& f);
 ThemeTag ClassifyFromSchemecolor(const std::wstring& sc, double minContrastDelta);
 
+bool ParseSchemecolorRGB(const std::wstring& sc, double& r, double& g, double& b);
 double rgbToLinearLuminance(uint8_t r, uint8_t g, uint8_t b);
 double SchemecolorToLuminance(const std::wstring& sc);
 const double* GetSRGBLut();
