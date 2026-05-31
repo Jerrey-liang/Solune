@@ -498,6 +498,53 @@ PkgParser::RgbaImage PkgParser::DecodeTexvToRGBA(const MemSpan& texSpan) const
                 }
             }
         }
+        // TEXB path failed — some textures (PKGV0021+) embed RGBA8888 as PNG/JPEG
+        // inside the TEXB container rather than as LZ4-compressed mipmaps.
+        const uint8_t* imgSearchEnd = texSpan.data + texSpan.size;
+        static constexpr uint8_t pngSig[8] = {0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
+        for (const uint8_t* p = searchStart; p + 8 <= imgSearchEnd; ++p)
+        {
+            if (std::memcmp(p, pngSig, 8) == 0)
+            {
+                int decodedW = 0, decodedH = 0;
+                std::vector<uint8_t> decodedPixels;
+                if (DecodeEmbeddedImageBytesToRgba(p, imgSearchEnd - p, decodedW, decodedH, decodedPixels))
+                {
+                    result.width = decodedW;
+                    result.height = decodedH;
+                    if (result.imageWidth <= 0 || result.imageWidth > decodedW)
+                        result.imageWidth = decodedW;
+                    if (result.imageHeight <= 0 || result.imageHeight > decodedH)
+                        result.imageHeight = decodedH;
+                    result.pixels = std::move(decodedPixels);
+                    result.decodeFormat = L"RGBA8888 (PNG-in-TEXB)";
+                    return result;
+                }
+                break;
+            }
+        }
+        static constexpr uint8_t jpgSig[3] = {0xFF, 0xD8, 0xFF};
+        for (const uint8_t* p = searchStart; p + 3 <= imgSearchEnd; ++p)
+        {
+            if (std::memcmp(p, jpgSig, 3) == 0)
+            {
+                int decodedW = 0, decodedH = 0;
+                std::vector<uint8_t> decodedPixels;
+                if (DecodeEmbeddedImageBytesToRgba(p, imgSearchEnd - p, decodedW, decodedH, decodedPixels))
+                {
+                    result.width = decodedW;
+                    result.height = decodedH;
+                    if (result.imageWidth <= 0 || result.imageWidth > decodedW)
+                        result.imageWidth = decodedW;
+                    if (result.imageHeight <= 0 || result.imageHeight > decodedH)
+                        result.imageHeight = decodedH;
+                    result.pixels = std::move(decodedPixels);
+                    result.decodeFormat = L"RGBA8888 (JPEG-in-TEXB)";
+                    return result;
+                }
+                break;
+            }
+        }
         return fail();
     }
 

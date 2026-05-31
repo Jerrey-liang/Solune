@@ -109,6 +109,44 @@ int main()
         return 0;
     }
 
+    if (argc >= 4 && wcscmp(argv[1], L"--render-bg") == 0)
+    {
+        try { winrt::init_apartment(); } catch (...) { return -1; }
+        std::wstring pkgPath = argv[2];
+        std::wstring outPath = argv[3];
+        double wPct = (argc >= 5) ? _wtof(argv[4]) : 0.25;
+        double hPct = (argc >= 6) ? _wtof(argv[5]) : 0.08;
+
+        std::wcout << L"=== Solune Background Media Render ===" << std::endl;
+        std::wcout << L"PKG:    " << pkgPath << std::endl;
+        std::wcout << L"Output: " << outPath << std::endl;
+        std::wcout << L"ROI:    " << wPct << L" x " << hPct << std::endl;
+
+        double roiAvg = 0, roiDark = 0, globalAvg = 0, globalDark = 0;
+        std::wstring decodeSummary;
+        if (sts::we::RenderBackgroundMediaToPng(pkgPath, outPath, wPct, hPct,
+                                                 roiAvg, roiDark, globalAvg, globalDark, decodeSummary))
+        {
+            std::wcout << L"\nRendered and saved." << std::endl;
+            std::wcout << L"  Decode summary:   " << decodeSummary << std::endl;
+            std::wcout << L"  ROI avg luminance: " << roiAvg << std::endl;
+            std::wcout << L"  ROI dark ratio:    " << roiDark << std::endl;
+            std::wcout << L"  Global avg:        " << globalAvg << std::endl;
+            std::wcout << L"  Global dark ratio: " << globalDark << std::endl;
+            const wchar_t* themeLabel = (roiAvg < 0.35) ? L"Dark" : L"Light";
+            std::wcout << L"  Classified as:     " << themeLabel
+                       << L" (avg " << roiAvg << L" vs 0.35 threshold)" << std::endl;
+        }
+        else
+        {
+            std::wcerr << L"ERROR: Failed to render background media from PKG" << std::endl;
+            LocalFree(argv);
+            return 1;
+        }
+        LocalFree(argv);
+        return 0;
+    }
+
     LocalFree(argv);
 
     try

@@ -66,7 +66,8 @@ double rgbToLinearLuminance(uint8_t r, uint8_t g, uint8_t b)
 
 bool CalcRgbaRoiStatsAligned(const PkgParser::RgbaImage& img, double wPct, double hPct,
                              const WallpaperAlignmentSettings& alignment, double& outRoiAvg,
-                             double& outRoiDark, double& outGlobalAvg, double& outGlobalDark)
+                             double& outRoiDark, double& outGlobalAvg, double& outGlobalDark,
+                             double fillLuminance)
 {
     if (!img.IsValid() || img.width <= 0 || img.height <= 0)
         return false;
@@ -76,7 +77,8 @@ bool CalcRgbaRoiStatsAligned(const PkgParser::RgbaImage& img, double wPct, doubl
     if (sourceW <= 0 || sourceH <= 0)
         return false;
 
-    const WallpaperPlacement placement = MakeWallpaperPlacement(sourceW, sourceH, alignment);
+    const WallpaperPlacement placement = MakeWallpaperPlacement(sourceW, sourceH, alignment,
+                                                                sourceW, sourceH);
     const int displayW = (std::max)(1, static_cast<int>(placement.displayW + 0.5));
     const int displayH = (std::max)(1, static_cast<int>(placement.displayH + 0.5));
     const int roiW = (std::max)(1, static_cast<int>(placement.displayW * wPct));
@@ -115,7 +117,7 @@ bool CalcRgbaRoiStatsAligned(const PkgParser::RgbaImage& img, double wPct, doubl
         for (int dx = roiX; dx < displayW; dx += step)
         {
             double sx = 0.0, sy = 0.0;
-            double L = 0.0;
+            double L = fillLuminance;
             if (MapDisplayToSource(placement, dx + 0.5, dy + 0.5, sx, sy))
             {
                 const int tx = (std::max)(0, (std::min)(sourceW - 1, static_cast<int>(sx)));
@@ -198,6 +200,14 @@ ThemeTag ClassifyFromSchemecolor(const std::wstring& sc, double)
     if (isWarm && cMax >= 0.65 && (cMax > 1e-9 ? ((cMax - cMin) / cMax) : 0.0) >= 0.20)
         inferred = ThemeTag::Light;
     return inferred;
+}
+
+double SchemecolorToLuminance(const std::wstring& sc)
+{
+    double r, g, b;
+    if (!parseSchemecolor3(sc, r, g, b))
+        return 0.0;
+    return relativeLuminance(r, g, b);
 }
 
 } // namespace sts::we

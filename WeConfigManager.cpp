@@ -1438,24 +1438,6 @@ bool jsonTryGetNumber(JsonObject const& obj, const std::wstring& key, double& ou
     return true;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 struct DiagCounters
 {
     int tagAlreadyPresent = 0;
@@ -1582,12 +1564,19 @@ static EvalTaskResult EvaluateWallpaperHeavy(std::wstring dictKey, std::wstring 
                         PkgParser::RgbaImage img = parser.DecodeTexvToRGBA(span);
                         if (img.IsValid())
                         {
+                            double fillLuminance = 0.0;
+                            if (alignment.custom)
+                            {
+                                std::wstring scheme;
+                                if (tryGetProjectJsonSchemecolor(pjPath, scheme))
+                                    fillLuminance = SchemecolorToLuminance(scheme);
+                            }
                             if ((!alignment.custom &&
                                  parser.CalcStatsFromRgba(img, opt.trayRoiWidthPct, opt.trayRoiHeightPct, rAvg, rDark,
                                                           gAvg, gDark)) ||
                                 (alignment.custom &&
                                  CalcRgbaRoiStatsAligned(img, opt.trayRoiWidthPct, opt.trayRoiHeightPct, alignment,
-                                                         rAvg, rDark, gAvg, gDark)))
+                                                         rAvg, rDark, gAvg, gDark, fillLuminance)))
                             {
                                 { ClassifyFeatures _f; _f.roiAvg=rAvg; _f.roiDarkRatio=rDark; _f.globalAvg=gAvg; _f.globalDarkRatio=gDark; auto _cr=ClassifyByStats(_f); res.inferredTag=_cr.tag; }
                                 res.pkgParsed = true; // 亮起硬解成功指示灯

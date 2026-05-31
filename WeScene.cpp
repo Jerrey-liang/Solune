@@ -433,7 +433,8 @@ bool CalcSceneCompositeStatsFromPkg(const PkgParser& parser, double wPct, double
 
     const int w = static_cast<int>(canvasW);
     const int h = static_cast<int>(canvasH);
-    const WallpaperPlacement placement = MakeWallpaperPlacement(canvasW, canvasH, alignment);
+    const WallpaperPlacement placement = MakeWallpaperPlacement(canvasW, canvasH, alignment,
+                                                                canvasW, canvasH);
     const int displayW = (std::max)(1, static_cast<int>(placement.displayW + 0.5));
     const int displayH = (std::max)(1, static_cast<int>(placement.displayH + 0.5));
     const int roiW = (std::max)(1, static_cast<int>(placement.displayW * wPct));
@@ -1138,12 +1139,14 @@ bool RenderSceneCompositeToPng(const std::wstring& pkgPath, const std::wstring& 
     outGlobalAvg = globalSum / static_cast<double>(totalPixels);
     outGlobalDark = static_cast<double>(globalDark) / static_cast<double>(totalPixels);
 
-    // ROI stats: same ROI logic as concurrent evaluation, sampling from output buffer
+    // ROI stats: sample display space at tray position, using clearColor
+    // luminance for areas not covered by the alignment.
     if (alignment.custom)
     {
         const double wPct = 0.25;
         const double hPct = 0.08;
-        const WallpaperPlacement placement = MakeWallpaperPlacement(canvasW, canvasH, alignment);
+        const WallpaperPlacement placement = MakeWallpaperPlacement(canvasW, canvasH, alignment,
+                                                                    canvasW, canvasH);
         const int dispW = (std::max)(1, static_cast<int>(placement.displayW + 0.5));
         const int dispH = (std::max)(1, static_cast<int>(placement.displayH + 0.5));
         const int roiW = (std::max)(1, static_cast<int>(placement.displayW * wPct));
@@ -1151,6 +1154,10 @@ bool RenderSceneCompositeToPng(const std::wstring& pkgPath, const std::wstring& 
         const int roiX = (std::max)(0, dispW - roiW);
         const int roiY = (std::max)(0, dispH - roiH);
         const int step = 4;
+
+        const double clearL = 0.2126 * lut[static_cast<int>(clearR * 255.0 + 0.5)]
+                            + 0.7152 * lut[static_cast<int>(clearG * 255.0 + 0.5)]
+                            + 0.0722 * lut[static_cast<int>(clearB * 255.0 + 0.5)];
 
         double roiSum = 0.0;
         int roiDarkCount = 0;
@@ -1160,15 +1167,18 @@ bool RenderSceneCompositeToPng(const std::wstring& pkgPath, const std::wstring& 
             for (int x = roiX; x < dispW; x += step)
             {
                 double sx = 0.0, sy = 0.0;
-                if (!MapDisplayToSource(placement, x + 0.5, y + 0.5, sx, sy))
-                    continue;
-                const int cx = static_cast<int>(sx);
-                const int cy = static_cast<int>(sy);
-                if (cx < 0 || cx >= cw || cy < 0 || cy >= ch)
-                    continue;
-                const size_t off = (static_cast<size_t>(cy) * cw + cx) * 4u;
-                const int r = buf[off + 0], g = buf[off + 1], b = buf[off + 2];
-                const double L = 0.2126 * lut[r] + 0.7152 * lut[g] + 0.0722 * lut[b];
+                double L = clearL;
+                if (MapDisplayToSource(placement, x + 0.5, y + 0.5, sx, sy))
+                {
+                    const int cx = static_cast<int>(sx);
+                    const int cy = static_cast<int>(sy);
+                    if (cx >= 0 && cx < cw && cy >= 0 && cy < ch)
+                    {
+                        const size_t off = (static_cast<size_t>(cy) * cw + cx) * 4u;
+                        const int r = buf[off + 0], g = buf[off + 1], b = buf[off + 2];
+                        L = 0.2126 * lut[r] + 0.7152 * lut[g] + 0.0722 * lut[b];
+                    }
+                }
                 roiSum += L;
                 if (L < 0.179) ++roiDarkCount;
                 ++roiSamples;
@@ -1201,6 +1211,38 @@ bool RenderSceneCompositeToPng(const std::wstring& pkgPath, const std::wstring& 
     if (outDecodeSummary.empty())
         outDecodeSummary = L"solid";
     return true;
+}
+
+bool RenderBackgroundMediaToPng(const std::wstring& pkgPath, const std::wstring& outPngPath,
+                                double wPct, double hPct,
+                                double& outRoiAvg, double& outRoiDark,
+                                double& outGlobalAvg, double& outGlobalDark,
+                                std::wstring& outDecodeSummary)
+{
+    PkgParser parser;
+    if (!parser.Parse(pkgPath))
+        return false;
+
+    std::string bgMedia = parser.FindBackgroundMedia();
+    if (bgMedia.empty())
+        return false;
+
+    auto it = parser.GetVFS().find(bgMedia);
+    if (it == parser.GetVFS().end())
+        return false;
+
+    PkgParser::RgbaImage img = parser.DecodeTexvToRGBA(it->second);
+    if (!img.IsValid())
+        return false;
+
+    outDecodeSummary = L"bg:" + sts::WStringFromUtf8(bgMedia) + L" " + img.decodeFormat;
+
+    if (!parser.CalcStatsFromRgba(img, wPct, hPct, outRoiAvg, outRoiDark, outGlobalAvg, outGlobalDark))
+        return false;
+
+    const int w = (img.imageWidth > 0) ? img.imageWidth : img.width;
+    const int h = (img.imageHeight > 0) ? img.imageHeight : img.height;
+    return writeRgbaToPngFile(img.pixels.data(), w, h, outPngPath);
 }
 
 } // namespace sts::we

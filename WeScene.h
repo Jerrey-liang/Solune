@@ -30,4 +30,10 @@ bool TestCalcSceneComposite(const std::wstring& pkgPath,
                             double& outGlobalAvg, double& outGlobalDark,
                             std::wstring& outDecodeSummary);
 
+bool RenderBackgroundMediaToPng(const std::wstring& pkgPath, const std::wstring& outPngPath,
+                                double wPct, double hPct,
+                                double& outRoiAvg, double& outRoiDark,
+                                double& outGlobalAvg, double& outGlobalDark,
+                                std::wstring& outDecodeSummary);
+
 } // namespace sts::we
