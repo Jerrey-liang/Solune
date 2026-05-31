@@ -206,9 +206,6 @@ static bool resolveObjectTexturePath(const PkgParser& parser, JsonObject const& 
 
     double cz = 0.0;
     outInfo.hasCrop = sceneTryGetVec3(model, L"cropoffset", outInfo.cropX, outInfo.cropY, cz);
-
-    // Models with cropoffset are character body parts that sample from a combined
-    // atlas texture. Their individual .tex files are solid-colored placeholders.
     if (outInfo.hasCrop)
         return false;
 
@@ -700,7 +697,8 @@ static bool writeRgbaToPngFile(const uint8_t* rgba, int w, int h, const std::wst
 bool RenderSceneCompositeToPng(const std::wstring& pkgPath, const std::wstring& outPngPath,
                                double& outRoiAvg, double& outRoiDark,
                                double& outGlobalAvg, double& outGlobalDark,
-                               std::wstring& outDecodeSummary)
+                               std::wstring& outDecodeSummary,
+                               const WallpaperAlignmentSettings& alignment)
 {
     PkgParser parser;
     if (!parser.Parse(pkgPath))
@@ -1059,27 +1057,139 @@ bool RenderSceneCompositeToPng(const std::wstring& pkgPath, const std::wstring& 
                << L" texDecodeFail=" << skippedTexDecodeFail
                << std::endl;
 
-    // Save as PNG
-    if (!writeRgbaToPngFile(buf.data(), cw, ch, outPngPath))
+    // Save as PNG and calculate stats
+    const double* lut = GetSRGBLut();
+    const uint8_t* outBuf = buf.data();
+    int outW = cw;
+    int outH = ch;
+    std::vector<uint8_t> croppedBuf;
+
+    if (alignment.custom)
+    {
+        const WallpaperPlacement placement = MakeWallpaperPlacement(canvasW, canvasH, alignment);
+
+        // Compute visible canvas region directly from placement math.
+        // displayX = contentX + (sourceX / sourceW) * contentW
+        // sourceX = (displayX - contentX) / contentW * sourceW
+        // Clamp the four display-edge source coordinates to canvas bounds.
+        const double srcW = placement.sourceW;
+        const double srcH = placement.sourceH;
+        const double cX = placement.contentX;
+        const double cY = placement.contentY;
+        const double cW = placement.contentW;
+        const double cH = placement.contentH;
+        const double dW = placement.displayW;
+        const double dH = placement.displayH;
+
+        auto dispToSrcX = [&](double dx) { return ((dx - cX) / cW) * srcW; };
+        auto dispToSrcY = [&](double dy) { return ((dy - cY) / cH) * srcH; };
+
+        const double sx0 = dispToSrcX(0.0);
+        const double sx1 = dispToSrcX(dW);
+        const double sy0 = dispToSrcY(0.0);
+        const double sy1 = dispToSrcY(dH);
+
+        const int cropX0 = (std::max)(0,            static_cast<int>(std::ceil((std::max)(0.0, (std::min)(sx0, sx1)))));
+        const int cropY0 = (std::max)(0,            static_cast<int>(std::ceil((std::max)(0.0, (std::min)(sy0, sy1)))));
+        const int cropX1 = (std::min)(cw - 1,       static_cast<int>(std::floor((std::min)(srcW - 1.0, (std::max)(sx0, sx1)))));
+        const int cropY1 = (std::min)(ch - 1,       static_cast<int>(std::floor((std::min)(srcH - 1.0, (std::max)(sy0, sy1)))));
+
+        if (cropX1 > cropX0 && cropY1 > cropY0)
+        {
+            outW = cropX1 - cropX0 + 1;
+            outH = cropY1 - cropY0 + 1;
+            croppedBuf.resize(static_cast<size_t>(outW) * outH * 4u);
+            for (int cy = cropY0; cy <= cropY1; ++cy)
+            {
+                const size_t srcRow = static_cast<size_t>(cy) * cw * 4u;
+                const size_t dstRow = static_cast<size_t>(cy - cropY0) * outW * 4u;
+                for (int cx = cropX0; cx <= cropX1; ++cx)
+                {
+                    const size_t srcOff = srcRow + static_cast<size_t>(cx) * 4u;
+                    const size_t dstOff = dstRow + static_cast<size_t>(cx - cropX0) * 4u;
+                    croppedBuf[dstOff + 0] = buf[srcOff + 0];
+                    croppedBuf[dstOff + 1] = buf[srcOff + 1];
+                    croppedBuf[dstOff + 2] = buf[srcOff + 2];
+                    croppedBuf[dstOff + 3] = buf[srcOff + 3];
+                }
+            }
+            outBuf = croppedBuf.data();
+            std::wcout << L"[render] Alignment crop: canvas(" << cropX0 << L"," << cropY0
+                       << L")-(" << cropX1 << L"," << cropY1
+                       << L") -> " << outW << L"x" << outH << std::endl;
+        }
+    }
+
+    if (!writeRgbaToPngFile(outBuf, outW, outH, outPngPath))
         return false;
 
-    // Calculate stats (full-frame)
-    const double* lut = GetSRGBLut();
-    double sumL = 0.0;
-    int darkCount = 0;
-    const size_t totalPixels = static_cast<size_t>(cw) * ch;
+    // Calculate stats on output region
+    double globalSum = 0.0;
+    int globalDark = 0;
+    const size_t totalPixels = static_cast<size_t>(outW) * outH;
     for (size_t i = 0; i < totalPixels; ++i)
     {
         const size_t off = i * 4u;
-        const int r = buf[off + 0], g = buf[off + 1], b = buf[off + 2];
+        const int r = outBuf[off + 0], g = outBuf[off + 1], b = outBuf[off + 2];
         const double L = 0.2126 * lut[r] + 0.7152 * lut[g] + 0.0722 * lut[b];
-        sumL += L;
-        if (L < 0.179) ++darkCount;
+        globalSum += L;
+        if (L < 0.179) ++globalDark;
     }
-    outGlobalAvg = sumL / static_cast<double>(totalPixels);
-    outGlobalDark = static_cast<double>(darkCount) / static_cast<double>(totalPixels);
-    outRoiAvg = outGlobalAvg;
-    outRoiDark = outGlobalDark;
+    outGlobalAvg = globalSum / static_cast<double>(totalPixels);
+    outGlobalDark = static_cast<double>(globalDark) / static_cast<double>(totalPixels);
+
+    // ROI stats: same ROI logic as concurrent evaluation, sampling from output buffer
+    if (alignment.custom)
+    {
+        const double wPct = 0.25;
+        const double hPct = 0.08;
+        const WallpaperPlacement placement = MakeWallpaperPlacement(canvasW, canvasH, alignment);
+        const int dispW = (std::max)(1, static_cast<int>(placement.displayW + 0.5));
+        const int dispH = (std::max)(1, static_cast<int>(placement.displayH + 0.5));
+        const int roiW = (std::max)(1, static_cast<int>(placement.displayW * wPct));
+        const int roiH = (std::max)(1, static_cast<int>(placement.displayH * hPct));
+        const int roiX = (std::max)(0, dispW - roiW);
+        const int roiY = (std::max)(0, dispH - roiH);
+        const int step = 4;
+
+        double roiSum = 0.0;
+        int roiDarkCount = 0;
+        int roiSamples = 0;
+        for (int y = roiY; y < dispH; y += step)
+        {
+            for (int x = roiX; x < dispW; x += step)
+            {
+                double sx = 0.0, sy = 0.0;
+                if (!MapDisplayToSource(placement, x + 0.5, y + 0.5, sx, sy))
+                    continue;
+                const int cx = static_cast<int>(sx);
+                const int cy = static_cast<int>(sy);
+                if (cx < 0 || cx >= cw || cy < 0 || cy >= ch)
+                    continue;
+                const size_t off = (static_cast<size_t>(cy) * cw + cx) * 4u;
+                const int r = buf[off + 0], g = buf[off + 1], b = buf[off + 2];
+                const double L = 0.2126 * lut[r] + 0.7152 * lut[g] + 0.0722 * lut[b];
+                roiSum += L;
+                if (L < 0.179) ++roiDarkCount;
+                ++roiSamples;
+            }
+        }
+        if (roiSamples > 0)
+        {
+            outRoiAvg = roiSum / static_cast<double>(roiSamples);
+            outRoiDark = static_cast<double>(roiDarkCount) / static_cast<double>(roiSamples);
+        }
+        else
+        {
+            outRoiAvg = outGlobalAvg;
+            outRoiDark = outGlobalDark;
+        }
+    }
+    else
+    {
+        outRoiAvg = outGlobalAvg;
+        outRoiDark = outGlobalDark;
+    }
 
     // Build decode summary
     outDecodeSummary.clear();

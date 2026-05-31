@@ -21,7 +21,8 @@ bool CalcSceneCompositeStatsFromPkg(const PkgParser& parser, double wPct, double
 bool RenderSceneCompositeToPng(const std::wstring& pkgPath, const std::wstring& outPngPath,
                                double& outAvgLuminance, double& outDarkRatio,
                                double& outGlobalAvg, double& outGlobalDark,
-                               std::wstring& outDecodeSummary);
+                               std::wstring& outDecodeSummary,
+                               const WallpaperAlignmentSettings& alignment = WallpaperAlignmentSettings{});
 
 bool TestCalcSceneComposite(const std::wstring& pkgPath,
                             double wPct, double hPct,

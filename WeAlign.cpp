@@ -43,8 +43,6 @@ WallpaperAlignmentSettings ReadWallpaperAlignment(JsonObject const& monitor0)
         a.mode = 4;
 
     a.position = (std::max)(0.0, (std::min)(100.0, a.position));
-    a.x = (std::max)(0.0, (std::min)(100.0, a.x));
-    a.y = (std::max)(0.0, (std::min)(100.0, a.y));
     a.z = (std::max)(1.0, (std::min)(400.0, a.z));
     return a;
 }
@@ -65,7 +63,7 @@ WallpaperPlacement MakeWallpaperPlacement(double sourceW, double sourceH, const 
         p.displayH = sourceH;
     }
 
-    const double zoom = 100.0 / align.z;
+    const double zoom = align.z / 100.0;
     const double scaleCover = (std::max)(p.displayW / sourceW, p.displayH / sourceH);
     const double scaleContain = (std::min)(p.displayW / sourceW, p.displayH / sourceH);
     const double pos = align.position / 100.0;
@@ -90,11 +88,14 @@ WallpaperPlacement MakeWallpaperPlacement(double sourceW, double sourceH, const 
             p.contentX = (p.displayW - p.contentW) * pos;
             p.contentY = (p.displayH - p.contentH) * pos;
             break;
-        case 4: // Free
-            p.contentW = sourceW * scaleCover * zoom;
-            p.contentH = sourceH * scaleCover * zoom;
-            p.contentX = (p.displayW - p.contentW) * (align.x / 100.0);
-            p.contentY = (p.displayH - p.contentH) * (align.y / 100.0);
+        case 4: // Free — unit-based: (50,50)=center, 1 unit = 1% of source width
+            {
+                const double unitPx = sourceW * 0.01;
+                p.contentW = sourceW * zoom;
+                p.contentH = sourceH * zoom;
+                p.contentX = (p.displayW - p.contentW) * 0.5 - (50.0 - align.x) * unitPx;
+                p.contentY = (p.displayH - p.contentH) * 0.5 + (align.y - 50.0) * unitPx;
+            }
             break;
         case 0: // Cover
         default:

@@ -61,20 +61,43 @@ int main()
         std::wstring pkgPath = argv[2];
         std::wstring outPath = argv[3];
 
+        sts::we::WallpaperAlignmentSettings alignment{};
+        if (argc >= 7)
+        {
+            alignment.custom = true;
+            alignment.mode = _wtoi(argv[4]);
+            alignment.x = _wtof(argv[5]);
+            alignment.y = _wtof(argv[6]);
+        }
+        if (argc >= 8)
+        {
+            alignment.z = _wtof(argv[7]);
+        }
+
         std::wcout << L"=== Solune Scene Render ===" << std::endl;
-        std::wcout << L"PKG:    " << pkgPath << std::endl;
-        std::wcout << L"Output: " << outPath << std::endl;
+        std::wcout << L"PKG:       " << pkgPath << std::endl;
+        std::wcout << L"Output:    " << outPath << std::endl;
+        if (alignment.custom)
+            std::wcout << L"Alignment: mode=" << alignment.mode
+                       << L" x=" << alignment.x << L" y=" << alignment.y
+                       << L" z=" << alignment.z << std::endl;
 
         double roiAvg = 0, roiDark = 0, globalAvg = 0, globalDark = 0;
         std::wstring decodeSummary;
-        if (sts::we::RenderSceneCompositeToPng(pkgPath, outPath, roiAvg, roiDark, globalAvg, globalDark, decodeSummary))
+        if (sts::we::RenderSceneCompositeToPng(pkgPath, outPath, roiAvg, roiDark, globalAvg, globalDark, decodeSummary, alignment))
         {
             std::wcout << L"\nRendered and saved." << std::endl;
             std::wcout << L"  Decode summary: " << decodeSummary << std::endl;
-            std::wcout << L"  Avg luminance:  " << globalAvg << std::endl;
-            std::wcout << L"  Dark ratio:     " << globalDark << std::endl;
-            const wchar_t* themeLabel = (globalAvg < 0.35) ? L"Dark" : L"Light";
-            std::wcout << L"  Classified as:  " << themeLabel << std::endl;
+            std::wcout << L"  Global avg:     " << globalAvg << std::endl;
+            std::wcout << L"  Global dark:    " << globalDark << std::endl;
+            if (alignment.custom)
+            {
+                std::wcout << L"  ROI avg:        " << roiAvg << std::endl;
+                std::wcout << L"  ROI dark:       " << roiDark << std::endl;
+            }
+            const wchar_t* themeLabel = (roiAvg < 0.35) ? L"Dark" : L"Light";
+            std::wcout << L"  Classified as:  " << themeLabel
+                       << L" (avg " << roiAvg << L" vs 0.35 threshold)" << std::endl;
         }
         else
         {
