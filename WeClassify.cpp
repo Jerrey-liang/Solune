@@ -38,15 +38,15 @@ ClassifyResult ClassifyByStats(const ClassifyFeatures& f)
     { tag = ThemeTag::Dark; conf = 0.88; }
     else if (f.globalAvg >= 0.22 && f.globalAvg <= 0.40 && f.globalDarkRatio >= 0.35 && f.globalDarkRatio <= 0.55 &&
              f.roiAvg >= 0.35 && f.roiDarkRatio <= 0.25)
-    { tag = ThemeTag::Both; conf = 0.75; }
+    { tag = ThemeTag::Light; conf = 0.75; }
     else if (f.globalAvg >= 0.28 && f.roiAvg >= 0.26 && f.roiDarkRatio <= 0.35)
     {
-        if (f.globalDarkRatio >= 0.42 && f.globalAvg <= 0.35) { tag = ThemeTag::Both; conf = 0.72; }
+        if (f.globalDarkRatio >= 0.42 && f.globalAvg <= 0.35) { tag = ThemeTag::Light; conf = 0.72; }
         else { tag = ThemeTag::Light; conf = 0.82; }
     }
     else if (f.globalAvg >= 0.25 && f.globalAvg <= 0.42 && f.roiAvg >= 0.16 && f.roiAvg <= 0.29 &&
              f.roiDarkRatio <= 0.55)
-    { tag = ThemeTag::Both; conf = 0.68; }
+    { tag = ThemeTag::Dark; conf = 0.68; }
     else if (f.roiDarkRatio >= 0.68 && f.roiAvg < 0.25)
     { tag = ThemeTag::Dark; conf = 0.78; }
     else if (f.globalAvg >= 0.32 && f.roiAvg >= 0.30 && f.globalDarkRatio <= 0.38 && f.roiDarkRatio <= 0.30)
@@ -77,8 +77,7 @@ bool CalcRgbaRoiStatsAligned(const PkgParser::RgbaImage& img, double wPct, doubl
     if (sourceW <= 0 || sourceH <= 0)
         return false;
 
-    const WallpaperPlacement placement = MakeWallpaperPlacement(sourceW, sourceH, alignment,
-                                                                sourceW, sourceH);
+    const WallpaperPlacement placement = MakeWallpaperPlacement(sourceW, sourceH, alignment);
     const int displayW = (std::max)(1, static_cast<int>(placement.displayW + 0.5));
     const int displayH = (std::max)(1, static_cast<int>(placement.displayH + 0.5));
     const int roiW = (std::max)(1, static_cast<int>(placement.displayW * wPct));

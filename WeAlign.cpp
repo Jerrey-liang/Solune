@@ -47,8 +47,7 @@ WallpaperAlignmentSettings ReadWallpaperAlignment(JsonObject const& monitor0)
     return a;
 }
 
-WallpaperPlacement MakeWallpaperPlacement(double sourceW, double sourceH, const WallpaperAlignmentSettings& align,
-                                         double overrideDisplayW, double overrideDisplayH)
+WallpaperPlacement MakeWallpaperPlacement(double sourceW, double sourceH, const WallpaperAlignmentSettings& align)
 {
     WallpaperPlacement p;
     p.sourceW = sourceW;
@@ -56,12 +55,7 @@ WallpaperPlacement MakeWallpaperPlacement(double sourceW, double sourceH, const 
     if (sourceW <= 0.0 || sourceH <= 0.0)
         return p;
 
-    if (overrideDisplayW > 0.0 && overrideDisplayH > 0.0)
-    {
-        p.displayW = overrideDisplayW;
-        p.displayH = overrideDisplayH;
-    }
-    else if (align.custom)
+    if (align.custom)
         getPrimaryDisplaySize(sourceW, sourceH, p.displayW, p.displayH);
     else
     {

@@ -32,8 +32,7 @@ struct WallpaperPlacement
 };
 
 WallpaperAlignmentSettings ReadWallpaperAlignment(JsonObject const& monitor0);
-WallpaperPlacement MakeWallpaperPlacement(double sourceW, double sourceH, const WallpaperAlignmentSettings& align,
-                                         double overrideDisplayW = 0.0, double overrideDisplayH = 0.0);
+WallpaperPlacement MakeWallpaperPlacement(double sourceW, double sourceH, const WallpaperAlignmentSettings& align);
 bool MapDisplayToSource(const WallpaperPlacement& p, double displayX, double displayY, double& outX, double& outY);
 
 } // namespace sts::we

@@ -1781,11 +1781,10 @@ UpdateResult ApplyAndSwitch(const ApplyOptions& opt)
         }
         else if (tag == ThemeTag::Both)
         {
-            bool removedLightAlias = removeWallpaperFromArray(lightItems, key, true);
             bool removedDarkAlias = removeWallpaperFromArray(darkItems, key, true);
-            bool addedLight = addUniqueString(lightItems, key);
-            bool addedDark = addUniqueString(darkItems, key);
-            playlistsMutated = playlistsMutated || removedLightAlias || removedDarkAlias || addedLight || addedDark;
+            bool removed = removeWallpaperFromArray(lightItems, key, false);
+            bool added = addUniqueString(lightItems, key);
+            playlistsMutated = playlistsMutated || removedDarkAlias || removed || added;
         }
         else if (tag == ThemeTag::Ignore)
         {

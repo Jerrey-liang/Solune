@@ -433,8 +433,7 @@ bool CalcSceneCompositeStatsFromPkg(const PkgParser& parser, double wPct, double
 
     const int w = static_cast<int>(canvasW);
     const int h = static_cast<int>(canvasH);
-    const WallpaperPlacement placement = MakeWallpaperPlacement(canvasW, canvasH, alignment,
-                                                                canvasW, canvasH);
+    const WallpaperPlacement placement = MakeWallpaperPlacement(canvasW, canvasH, alignment);
     const int displayW = (std::max)(1, static_cast<int>(placement.displayW + 0.5));
     const int displayH = (std::max)(1, static_cast<int>(placement.displayH + 0.5));
     const int roiW = (std::max)(1, static_cast<int>(placement.displayW * wPct));
@@ -1145,8 +1144,7 @@ bool RenderSceneCompositeToPng(const std::wstring& pkgPath, const std::wstring& 
     {
         const double wPct = 0.25;
         const double hPct = 0.08;
-        const WallpaperPlacement placement = MakeWallpaperPlacement(canvasW, canvasH, alignment,
-                                                                    canvasW, canvasH);
+        const WallpaperPlacement placement = MakeWallpaperPlacement(canvasW, canvasH, alignment);
         const int dispW = (std::max)(1, static_cast<int>(placement.displayW + 0.5));
         const int dispH = (std::max)(1, static_cast<int>(placement.displayH + 0.5));
         const int roiW = (std::max)(1, static_cast<int>(placement.displayW * wPct));
