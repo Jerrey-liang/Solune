@@ -445,6 +445,9 @@ bool CalcSceneCompositeStatsFromPkg(const PkgParser& parser, double wPct, double
     const int roiY = (std::max)(0, displayH - roiH);
     const int step = 4;
 
+    const double contentRight = placement.contentX + placement.contentW;
+    const double contentBottom = placement.contentY + placement.contentH;
+
     std::vector<Sample> samples;
     samples.reserve(static_cast<size_t>((roiW / step + 2) * (roiH / step + 2)));
     for (int y = roiY; y < displayH; y += step)
@@ -452,7 +455,9 @@ bool CalcSceneCompositeStatsFromPkg(const PkgParser& parser, double wPct, double
         for (int x = roiX; x < displayW; x += step)
         {
             double sx = 0.0, sy = 0.0;
-            const bool inside = MapDisplayToSource(placement, x + 0.5, y + 0.5, sx, sy);
+            const bool inDisplayContent = (x >= placement.contentX && x < contentRight &&
+                                           y >= placement.contentY && y < contentBottom);
+            const bool inside = inDisplayContent && MapDisplayToSource(placement, x + 0.5, y + 0.5, sx, sy);
             samples.push_back(Sample{sx, sy, inside, clearR, clearG, clearB});
         }
     }
@@ -1167,6 +1172,9 @@ bool RenderSceneCompositeToPng(const std::wstring& pkgPath, const std::wstring& 
                             + 0.7152 * lut[static_cast<int>(clearG * 255.0 + 0.5)]
                             + 0.0722 * lut[static_cast<int>(clearB * 255.0 + 0.5)];
 
+        const double contentRight2 = placement.contentX + placement.contentW;
+        const double contentBottom2 = placement.contentY + placement.contentH;
+
         double roiSum = 0.0;
         int roiDarkCount = 0;
         int roiSamples = 0;
@@ -1176,7 +1184,9 @@ bool RenderSceneCompositeToPng(const std::wstring& pkgPath, const std::wstring& 
             {
                 double sx = 0.0, sy = 0.0;
                 double L = clearL;
-                if (MapDisplayToSource(placement, x + 0.5, y + 0.5, sx, sy))
+                const bool inDisplayContent = (x >= placement.contentX && x < contentRight2 &&
+                                               y >= placement.contentY && y < contentBottom2);
+                if (inDisplayContent && MapDisplayToSource(placement, x + 0.5, y + 0.5, sx, sy))
                 {
                     const int cx = static_cast<int>(sx);
                     const int cy = static_cast<int>(sy);

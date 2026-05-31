@@ -111,13 +111,18 @@ bool CalcRgbaRoiStatsAligned(const PkgParser::RgbaImage& img, double wPct, doubl
         }
     }
 
+    const double contentRight = placement.contentX + placement.contentW;
+    const double contentBottom = placement.contentY + placement.contentH;
+
     for (int dy = roiY; dy < displayH; dy += step)
     {
         for (int dx = roiX; dx < displayW; dx += step)
         {
             double sx = 0.0, sy = 0.0;
             double L = fillLuminance;
-            if (MapDisplayToSource(placement, dx + 0.5, dy + 0.5, sx, sy))
+            const bool inDisplayContent = (dx >= placement.contentX && dx < contentRight &&
+                                           dy >= placement.contentY && dy < contentBottom);
+            if (inDisplayContent && MapDisplayToSource(placement, dx + 0.5, dy + 0.5, sx, sy))
             {
                 const int tx = (std::max)(0, (std::min)(sourceW - 1, static_cast<int>(sx)));
                 const int ty = (std::max)(0, (std::min)(sourceH - 1, static_cast<int>(sy)));
