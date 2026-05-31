@@ -16,7 +16,6 @@ namespace sts::we
     {
         Light,
         Dark,
-        Both,
         Ignore,
         Unknown
     };

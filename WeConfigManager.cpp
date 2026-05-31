@@ -423,8 +423,6 @@ const wchar_t* ThemeTagToString(ThemeTag t)
             return L"light";
         case ThemeTag::Dark:
             return L"dark";
-        case ThemeTag::Both:
-            return L"both";
         case ThemeTag::Ignore:
             return L"ignore";
         default:
@@ -438,8 +436,6 @@ ThemeTag ThemeTagFromString(const std::wstring& s)
         return ThemeTag::Light;
     if (v == L"dark")
         return ThemeTag::Dark;
-    if (v == L"both")
-        return ThemeTag::Both;
     if (v == L"ignore")
         return ThemeTag::Ignore;
     return ThemeTag::Unknown;
@@ -1595,8 +1591,6 @@ static EvalTaskResult EvaluateWallpaperHeavy(std::wstring dictKey, std::wstring 
         std::wstring scheme;
         if (tryGetProjectJsonSchemecolor(pjPath, scheme))
             res.inferredTag = ClassifyFromSchemecolor(scheme, opt.minContrastDelta);
-            if (res.inferredTag == ThemeTag::Both)
-                res.inferredTag = ThemeTag::Light; // schemecolor Both -> Light
     }
 
     return res;
@@ -1779,13 +1773,6 @@ UpdateResult ApplyAndSwitch(const ApplyOptions& opt)
             bool added = addUniqueString(darkItems, key);
             playlistsMutated = playlistsMutated || removedDarkAlias || removed || added;
         }
-        else if (tag == ThemeTag::Both)
-        {
-            bool removedDarkAlias = removeWallpaperFromArray(darkItems, key, true);
-            bool removed = removeWallpaperFromArray(lightItems, key, false);
-            bool added = addUniqueString(lightItems, key);
-            playlistsMutated = playlistsMutated || removedDarkAlias || removed || added;
-        }
         else if (tag == ThemeTag::Ignore)
         {
             bool removedLight = removeWallpaperFromArray(lightItems, key, false);
@@ -1936,7 +1923,7 @@ UpdateResult ApplyAndSwitch(const ApplyOptions& opt)
         {
             if (inLight && inDark)
             {
-                userTag = ThemeTag::Both;
+                userTag = ThemeTag::Unknown;
             }
             else if (inLight)
             {
