@@ -15,7 +15,8 @@
 
 #include <userenv.h>
 
-#include <winrt/Windows.Devices.Geolocation.h>
+#include <winhttp.h>
+
 #include <winrt/Windows.Data.Json.h>
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Foundation.h>
@@ -24,6 +25,7 @@
 #pragma comment(lib, "Shell32.lib")
 #pragma comment(lib, "Wtsapi32.lib")
 #pragma comment(lib, "Userenv.lib")
+#pragma comment(lib, "Winhttp.lib")
 #pragma comment(lib, "windowsapp.lib")
 
 namespace fs = std::filesystem;
@@ -158,7 +160,8 @@ PlaylistConfig App::loadConfig()
         if (jsonTryGetObject(root, L"location", loc))
         {
             if (jsonTryGetNumber(loc, L"lat", cfg.latitude) &&
-                jsonTryGetNumber(loc, L"lng", cfg.longitude))
+                jsonTryGetNumber(loc, L"lng", cfg.longitude) &&
+                (std::abs(cfg.latitude) > 0.01 || std::abs(cfg.longitude) > 0.01))
                 cfg.hasLocation = true;
         }
     }
@@ -175,10 +178,13 @@ void App::saveConfig(const PlaylistConfig& cfg)
         root.SetNamedValue(L"light_playlist", JsonValue::CreateStringValue(cfg.lightPlaylist));
         root.SetNamedValue(L"dark_playlist", JsonValue::CreateStringValue(cfg.darkPlaylist));
 
-        JsonObject loc;
-        loc.SetNamedValue(L"lat", JsonValue::CreateNumberValue(cfg.latitude));
-        loc.SetNamedValue(L"lng", JsonValue::CreateNumberValue(cfg.longitude));
-        root.SetNamedValue(L"location", loc);
+        if (cfg.hasLocation)
+        {
+            JsonObject loc;
+            loc.SetNamedValue(L"lat", JsonValue::CreateNumberValue(cfg.latitude));
+            loc.SetNamedValue(L"lng", JsonValue::CreateNumberValue(cfg.longitude));
+            root.SetNamedValue(L"location", loc);
+        }
 
         const std::wstring path = configPath();
         const std::string json = winrt::to_string(root.Stringify());
@@ -230,20 +236,71 @@ static constexpr double kDegPerRad = 180.0 / kPi;
 static double degToRad(double x) { return x * kRadPerDeg; }
 static double radToDeg(double x) { return x * kDegPerRad; }
 
-static Location getLocation()
+static Location getLocationViaHttp()
 {
     Location loc;
+    // ip-api.com free tier: 45 req/min, no API key needed
+    const wchar_t* host = L"ip-api.com";
+    const wchar_t* path = L"/json/";
+
+    HINTERNET session = WinHttpOpen(L"Solune/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                                     WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!session) return loc;
+
+    HINTERNET connect = WinHttpConnect(session, host, INTERNET_DEFAULT_HTTP_PORT, 0);
+    if (!connect) { WinHttpCloseHandle(session); return loc; }
+
+    HINTERNET request = WinHttpOpenRequest(connect, L"GET", path, nullptr,
+                                            WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
+                                            0);
+    if (!request) { WinHttpCloseHandle(connect); WinHttpCloseHandle(session); return loc; }
+
+    if (!WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0))
+    {
+        WinHttpCloseHandle(request); WinHttpCloseHandle(connect); WinHttpCloseHandle(session);
+        return loc;
+    }
+
+    if (!WinHttpReceiveResponse(request, nullptr))
+    {
+        WinHttpCloseHandle(request); WinHttpCloseHandle(connect); WinHttpCloseHandle(session);
+        return loc;
+    }
+
+    std::string body;
+    DWORD bytesAvail = 0;
+    while (WinHttpQueryDataAvailable(request, &bytesAvail) && bytesAvail > 0)
+    {
+        std::vector<char> chunk(bytesAvail + 1);
+        DWORD read = 0;
+        if (WinHttpReadData(request, chunk.data(), bytesAvail, &read) && read > 0)
+            body.append(chunk.data(), read);
+    }
+
+    WinHttpCloseHandle(request);
+    WinHttpCloseHandle(connect);
+    WinHttpCloseHandle(session);
+
+    if (body.empty()) return loc;
+
     try
     {
-        winrt::Windows::Devices::Geolocation::Geolocator geolocator;
-        geolocator.DesiredAccuracy(winrt::Windows::Devices::Geolocation::PositionAccuracy::Default);
-        const auto pos = geolocator.GetGeopositionAsync().get();
-        const auto coord = pos.Coordinate().Point().Position();
-        loc.latitude = coord.Latitude;
-        loc.longitude = coord.Longitude;
-        loc.valid = true;
+        auto json = winrt::to_hstring(body);
+        JsonObject root;
+        if (!JsonObject::TryParse(json, root)) return loc;
+
+        double lat = 0.0, lng = 0.0;
+        if (jsonTryGetNumber(root, L"lat", lat) &&
+            jsonTryGetNumber(root, L"lon", lng) &&
+            (std::abs(lat) > 0.01 || std::abs(lng) > 0.01))
+        {
+            loc.latitude = lat;
+            loc.longitude = lng;
+            loc.valid = true;
+        }
     }
-    catch (...) { loc.valid = false; }
+    catch (...) {}
+
     return loc;
 }
 
@@ -813,7 +870,7 @@ DWORD WINAPI App::serviceWorkerThread(LPVOID param)
     if (hasLocation)
         std::wcout << L"[Service] Cached location: " << lat << L", " << lng << std::endl;
     else
-        std::wcout << L"[Service] No cached location. Run --update-location in user session." << std::endl;
+        std::wcout << L"[Service] No cached location. Run Solune.exe once in console mode first." << std::endl;
 
     // Report running
     app->serviceStatus_.dwCurrentState = SERVICE_RUNNING;
@@ -972,29 +1029,6 @@ int App::run()
         return 0;
     }
 
-    if (argc >= 2 && wcscmp(argv[1], L"--update-location") == 0)
-    {
-        // User session: get location and cache to solune.json
-        try { winrt::init_apartment(); } catch (...) { return -1; }
-
-        std::wcout << L"[Location] Getting current location..." << std::endl;
-        localSun::Location loc = localSun::getLocation();
-        if (loc.valid)
-        {
-            saveLocationToConfig(loc.latitude, loc.longitude);
-            std::wcout << L"[Location] Saved: lat=" << loc.latitude << L" lng=" << loc.longitude << std::endl;
-        }
-        else
-        {
-            std::wcerr << L"[Location] Failed to get location." << std::endl;
-            LocalFree(argv);
-            return 1;
-        }
-
-        LocalFree(argv);
-        return 0;
-    }
-
     if (argc >= 2 && wcscmp(argv[1], L"--install") == 0)
     {
         // Register as Windows Service
@@ -1065,7 +1099,7 @@ int App::run()
     if (!loadLocationFromConfig(lat, lng))
     {
         std::wcout << L"[Solune] Getting location..." << std::endl;
-        localSun::Location loc = localSun::getLocation();
+        localSun::Location loc = localSun::getLocationViaHttp();
         if (loc.valid)
         {
             lat = loc.latitude;
@@ -1074,7 +1108,7 @@ int App::run()
         }
         else
         {
-            std::wcout << L"[Solune] Location unavailable, using Dark theme as default." << std::endl;
+            std::wcout << L"[Solune] IP geolocation failed. Using fallback 6:00-18:00 window." << std::endl;
         }
     }
 
@@ -1097,7 +1131,7 @@ void App::loop()
     if (!loadLocationFromConfig(lat, lng))
     {
         // Try to get location once
-        localSun::Location loc = localSun::getLocation();
+        localSun::Location loc = localSun::getLocationViaHttp();
         if (loc.valid)
         {
             lat = loc.latitude;
