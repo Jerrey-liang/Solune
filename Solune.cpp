@@ -421,26 +421,6 @@ static Theme expectedThemeNow(double lat, double lng)
     return (nowSec >= window.sunriseSec && nowSec < window.sunsetSec) ? Theme::Light : Theme::Dark;
 }
 
-static long long secondsUntilNextEvent(double lat, double lng)
-{
-    SunWindow window;
-    if (!getSunWindowForToday(window, lat, lng) || !window.valid)
-        return 60;
-
-    SYSTEMTIME lt{};
-    GetLocalTime(&lt);
-    const long long nowSec = lt.wHour * 3600LL + lt.wMinute * 60LL + lt.wSecond;
-    const long long daySec = 86400LL;
-
-    // Check if we're before sunrise today
-    if (nowSec < window.sunriseSec)
-        return window.sunriseSec - nowSec;
-    // Between sunrise and sunset
-    if (nowSec < window.sunsetSec)
-        return window.sunsetSec - nowSec;
-    // After sunset: next event is tomorrow's sunrise
-    return (daySec - nowSec) + window.sunriseSec;
-}
 } // namespace localSun
 
 // ============================================================================
@@ -473,9 +453,9 @@ void App::repairAccentColor()
     static constexpr const wchar_t* kDesktop = L"Control Panel\\Desktop";
 
     DWORD taskbarAccent = 0, titleBarAccent = 0, autoColorization = 0;
-    registry::readDword(HKEY_CURRENT_USER, kKey, L"ColorPrevalence", taskbarAccent);
-    registry::readDword(HKEY_CURRENT_USER, kDwm, L"ColorPrevalence", titleBarAccent);
-    registry::readDword(HKEY_CURRENT_USER, kDesktop, L"AutoColorization", autoColorization);
+    readUserDword(kKey, L"ColorPrevalence", taskbarAccent);
+    readUserDword(kDwm, L"ColorPrevalence", titleBarAccent);
+    readUserDword(kDesktop, L"AutoColorization", autoColorization);
 
     broadcastThemeRefresh();
     Sleep(120);
@@ -1123,8 +1103,9 @@ int App::run()
     if (argc >= 2 && wcscmp(argv[1], L"--install") == 0)
     {
         // Register as Windows Service
-        const std::wstring exePath = getExeDir() + L"\\Solune.exe";
-        const std::wstring cmd = L"\"" + exePath + L"\" --service";
+        wchar_t exePathBuf[MAX_PATH] = {};
+        GetModuleFileNameW(nullptr, exePathBuf, MAX_PATH);
+        const std::wstring cmd = L"\"" + std::wstring(exePathBuf) + L"\" --service";
 
         SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CREATE_SERVICE);
         if (!scm)
@@ -1267,16 +1248,7 @@ void App::loop()
             configReloadTicks = 0;
             config_ = loadConfig();
             weExePath_ = detectWallpaperEnginePath();
-            if (!loadLocationFromConfig(lat, lng))
-            {
-                localSun::Location loc = localSun::getLocationViaHttp();
-                if (loc.valid)
-                {
-                    lat = loc.latitude;
-                    lng = loc.longitude;
-                    saveLocationToConfig(lat, lng);
-                }
-            }
+            loadLocationFromConfig(lat, lng); // refresh lat/lng if config changed
         }
         SYSTEMTIME lt{};
         GetLocalTime(&lt);
