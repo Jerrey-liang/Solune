@@ -330,11 +330,11 @@ static bool getSunWindowForToday(SunWindow& out, double lat, double lng)
         return true;
     }
 
-    // Fallback: when location is unavailable (0,0 or unset), use fixed 6am-6pm
+    // Fallback: when location is unavailable, use system time: 7:00-19:00
     if (std::abs(lat) < 0.01 && std::abs(lng) < 0.01)
     {
-        cachedWindow.sunriseSec = 6 * 3600;  // 06:00 local
-        cachedWindow.sunsetSec  = 18 * 3600; // 18:00 local
+        cachedWindow.sunriseSec = 7 * 3600;  // 07:00
+        cachedWindow.sunsetSec  = 19 * 3600; // 19:00
         cachedWindow.valid = true;
         cachedDayOfYear = dayOfYear;
         cachedLat = lat;
@@ -1108,7 +1108,7 @@ int App::run()
         }
         else
         {
-            std::wcout << L"[Solune] IP geolocation failed. Using fallback 6:00-18:00 window." << std::endl;
+            std::wcout << L"[Solune] IP geolocation failed. Using system time (7:00-19:00)." << std::endl;
         }
     }
 
