@@ -13,6 +13,7 @@
 #include <vector>
 #include <wtsapi32.h>
 
+#include <sddl.h>
 #include <userenv.h>
 
 #include <winhttp.h>
@@ -239,68 +240,73 @@ static double radToDeg(double x) { return x * kDegPerRad; }
 static Location getLocationViaHttp()
 {
     Location loc;
-    // ip-api.com free tier: 45 req/min, no API key needed
-    const wchar_t* host = L"ip-api.com";
-    const wchar_t* path = L"/json/";
 
-    HINTERNET session = WinHttpOpen(L"Solune/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-                                     WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-    if (!session) return loc;
-
-    HINTERNET connect = WinHttpConnect(session, host, INTERNET_DEFAULT_HTTP_PORT, 0);
-    if (!connect) { WinHttpCloseHandle(session); return loc; }
-
-    HINTERNET request = WinHttpOpenRequest(connect, L"GET", path, nullptr,
-                                            WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
-                                            0);
-    if (!request) { WinHttpCloseHandle(connect); WinHttpCloseHandle(session); return loc; }
-
-    if (!WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0))
+    auto tryFetch = [](const wchar_t* host, const wchar_t* path, bool https,
+                       const wchar_t* latKey, const wchar_t* lngKey) -> Location
     {
-        WinHttpCloseHandle(request); WinHttpCloseHandle(connect); WinHttpCloseHandle(session);
-        return loc;
-    }
+        Location result;
+        HINTERNET session = WinHttpOpen(L"Solune/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                                         WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+        if (!session) return result;
 
-    if (!WinHttpReceiveResponse(request, nullptr))
-    {
-        WinHttpCloseHandle(request); WinHttpCloseHandle(connect); WinHttpCloseHandle(session);
-        return loc;
-    }
+        const INTERNET_PORT port = https ? INTERNET_DEFAULT_HTTPS_PORT : INTERNET_DEFAULT_HTTP_PORT;
+        const DWORD flags = https ? WINHTTP_FLAG_SECURE : 0;
 
-    std::string body;
-    DWORD bytesAvail = 0;
-    while (WinHttpQueryDataAvailable(request, &bytesAvail) && bytesAvail > 0)
-    {
-        std::vector<char> chunk(bytesAvail + 1);
-        DWORD read = 0;
-        if (WinHttpReadData(request, chunk.data(), bytesAvail, &read) && read > 0)
-            body.append(chunk.data(), read);
-    }
+        HINTERNET connect = WinHttpConnect(session, host, port, 0);
+        if (!connect) { WinHttpCloseHandle(session); return result; }
 
-    WinHttpCloseHandle(request);
-    WinHttpCloseHandle(connect);
-    WinHttpCloseHandle(session);
+        HINTERNET request = WinHttpOpenRequest(connect, L"GET", path, nullptr,
+                                                WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+        if (!request) { WinHttpCloseHandle(connect); WinHttpCloseHandle(session); return result; }
 
-    if (body.empty()) return loc;
+        if (!WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0))
+        { WinHttpCloseHandle(request); WinHttpCloseHandle(connect); WinHttpCloseHandle(session); return result; }
 
-    try
-    {
-        auto json = winrt::to_hstring(body);
-        JsonObject root;
-        if (!JsonObject::TryParse(json, root)) return loc;
+        if (!WinHttpReceiveResponse(request, nullptr))
+        { WinHttpCloseHandle(request); WinHttpCloseHandle(connect); WinHttpCloseHandle(session); return result; }
 
-        double lat = 0.0, lng = 0.0;
-        if (jsonTryGetNumber(root, L"lat", lat) &&
-            jsonTryGetNumber(root, L"lon", lng) &&
-            (std::abs(lat) > 0.01 || std::abs(lng) > 0.01))
+        std::string body;
+        DWORD bytesAvail = 0;
+        while (WinHttpQueryDataAvailable(request, &bytesAvail) && bytesAvail > 0)
         {
-            loc.latitude = lat;
-            loc.longitude = lng;
-            loc.valid = true;
+            std::vector<char> chunk(bytesAvail + 1);
+            DWORD read = 0;
+            if (WinHttpReadData(request, chunk.data(), bytesAvail, &read) && read > 0)
+                body.append(chunk.data(), read);
         }
-    }
-    catch (...) {}
 
+        WinHttpCloseHandle(request);
+        WinHttpCloseHandle(connect);
+        WinHttpCloseHandle(session);
+
+        if (body.empty()) return result;
+
+        try
+        {
+            auto json = winrt::to_hstring(body);
+            JsonObject root;
+            if (!JsonObject::TryParse(json, root)) return result;
+
+            double lat = 0.0, lng = 0.0;
+            if (jsonTryGetNumber(root, latKey, lat) &&
+                jsonTryGetNumber(root, lngKey, lng) &&
+                (std::abs(lat) > 0.01 || std::abs(lng) > 0.01))
+            {
+                result.latitude = lat;
+                result.longitude = lng;
+                result.valid = true;
+            }
+        }
+        catch (...) {}
+        return result;
+    };
+
+    // Primary: ip-api.com (HTTP, no TLS overhead)
+    loc = tryFetch(L"ip-api.com", L"/json/", false, L"lat", L"lon");
+    if (loc.valid) return loc;
+
+    // Backup: api.ip.sb (returns "latitude"/"longitude")
+    loc = tryFetch(L"api.ip.sb", L"/geoip", true, L"latitude", L"longitude");
     return loc;
 }
 
@@ -459,7 +465,7 @@ static void broadcastThemeRefresh()
     while (sec) { refreshWindow(sec); sec = FindWindowExW(nullptr, sec, L"Shell_SecondaryTrayWnd", nullptr); }
 }
 
-static void repairAccentColorAfterWallpaperSwitch()
+void App::repairAccentColor()
 {
     static constexpr const wchar_t* kKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
     static constexpr const wchar_t* kDwm = L"Software\\Microsoft\\Windows\\DWM";
@@ -475,15 +481,15 @@ static void repairAccentColorAfterWallpaperSwitch()
 
     if (autoColorization == 1)
     {
-        registry::writeDword(HKEY_CURRENT_USER, kDesktop, L"AutoColorization", 0);
+        writeUserDword(kDesktop, L"AutoColorization", 0);
         broadcastThemeRefresh();
         Sleep(120);
-        registry::writeDword(HKEY_CURRENT_USER, kDesktop, L"AutoColorization", 1);
+        writeUserDword(kDesktop, L"AutoColorization", 1);
         Sleep(120);
     }
 
-    registry::writeDword(HKEY_CURRENT_USER, kKey, L"ColorPrevalence", taskbarAccent);
-    registry::writeDword(HKEY_CURRENT_USER, kDwm, L"ColorPrevalence", titleBarAccent);
+    writeUserDword(kKey, L"ColorPrevalence", taskbarAccent);
+    writeUserDword(kDwm, L"ColorPrevalence", titleBarAccent);
     broadcastThemeRefresh();
 }
 
@@ -525,6 +531,51 @@ static HANDLE getActiveUserToken()
     DuplicateTokenEx(userToken, TOKEN_ALL_ACCESS, nullptr, SecurityImpersonation, TokenPrimary, &primaryToken);
     CloseHandle(userToken);
     return primaryToken;
+}
+
+static std::wstring getActiveUserSid()
+{
+    std::wstring sidStr;
+    const DWORD sessionId = getActiveUserSessionId();
+    if (sessionId == 0xFFFFFFFF) return sidStr;
+
+    HANDLE userToken = nullptr;
+    if (!WTSQueryUserToken(sessionId, &userToken)) return sidStr;
+
+    DWORD tokenInfoLen = 0;
+    GetTokenInformation(userToken, TokenUser, nullptr, 0, &tokenInfoLen);
+    if (tokenInfoLen == 0) { CloseHandle(userToken); return sidStr; }
+
+    std::vector<BYTE> buf(tokenInfoLen);
+    auto pUser = reinterpret_cast<PTOKEN_USER>(buf.data());
+    if (!GetTokenInformation(userToken, TokenUser, pUser, tokenInfoLen, &tokenInfoLen))
+        { CloseHandle(userToken); return sidStr; }
+
+    LPWSTR str = nullptr;
+    if (ConvertSidToStringSidW(pUser->User.Sid, &str))
+    {
+        sidStr = str;
+        LocalFree(str);
+    }
+
+    CloseHandle(userToken);
+    return sidStr;
+}
+
+bool App::writeUserDword(const wchar_t* key, const wchar_t* value, DWORD data)
+{
+    if (!isService_)
+        return registry::writeDword(HKEY_CURRENT_USER, key, value, data);
+
+    // From Session 0: write to the logged-in user's registry hive
+    if (userSid_.empty())
+        userSid_ = getActiveUserSid();
+
+    if (userSid_.empty())
+        return registry::writeDword(HKEY_CURRENT_USER, key, value, data);
+
+    const std::wstring fullKey = userSid_ + L"\\" + key;
+    return registry::writeDword(HKEY_USERS, fullKey.c_str(), value, data);
 }
 
 // ============================================================================
@@ -588,10 +639,10 @@ void App::applyTheme(Theme targetTheme, bool switchWallpaper)
     const DWORD themeValue = (targetTheme == Theme::Dark) ? 0u : 1u;
     const DWORD accentVisible = (targetTheme == Theme::Dark) ? 1u : 0u;
 
-    registry::writeDword(HKEY_CURRENT_USER, kPersonalizeKey, L"SystemUsesLightTheme", themeValue);
-    registry::writeDword(HKEY_CURRENT_USER, kPersonalizeKey, L"AppsUseLightTheme", themeValue);
-    registry::writeDword(HKEY_CURRENT_USER, kPersonalizeKey, L"ColorPrevalence", accentVisible);
-    registry::writeDword(HKEY_CURRENT_USER, kDwmKey, L"ColorPrevalence", accentVisible);
+    writeUserDword(kPersonalizeKey, L"SystemUsesLightTheme", themeValue);
+    writeUserDword(kPersonalizeKey, L"AppsUseLightTheme", themeValue);
+    writeUserDword(kPersonalizeKey, L"ColorPrevalence", accentVisible);
+    writeUserDword(kDwmKey, L"ColorPrevalence", accentVisible);
 
     broadcastThemeRefresh();
 
@@ -603,7 +654,7 @@ void App::applyTheme(Theme targetTheme, bool switchWallpaper)
         Sleep(1500);
     }
 
-    repairAccentColorAfterWallpaperSwitch();
+    repairAccentColor();
 }
 
 // ============================================================================
@@ -850,6 +901,7 @@ DWORD WINAPI App::serviceWorkerThread(LPVOID param)
 {
     App* app = static_cast<App*>(param);
     g_pServiceApp = app;
+    app->isService_ = true;
 
     // Load config
     app->config_ = app->loadConfig();
@@ -1143,9 +1195,27 @@ void App::loop()
     int lastDayOfYear = -1;
     long long sunriseSec = -1, sunsetSec = -1;
     Theme lastApplied = getSystemTheme();
+    int configReloadTicks = 0;
 
     while (true)
     {
+        // Reload config every 30 min (pick up external changes)
+        if (++configReloadTicks >= 30)
+        {
+            configReloadTicks = 0;
+            config_ = loadConfig();
+            weExePath_ = detectWallpaperEnginePath();
+            if (!loadLocationFromConfig(lat, lng))
+            {
+                localSun::Location loc = localSun::getLocationViaHttp();
+                if (loc.valid)
+                {
+                    lat = loc.latitude;
+                    lng = loc.longitude;
+                    saveLocationToConfig(lat, lng);
+                }
+            }
+        }
         SYSTEMTIME lt{};
         GetLocalTime(&lt);
         const int dayOfYear = lt.wYear * 366 + lt.wMonth * 31 + lt.wDay;
