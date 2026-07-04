@@ -46,6 +46,7 @@ private:
 
     // Session-aware registry (handles Session 0 vs user session)
     bool writeUserDword(const wchar_t* key, const wchar_t* value, DWORD data);
+    bool readUserDword(const wchar_t* key, const wchar_t* value, DWORD& out);
 
 private:
     HANDLE mutex_ = nullptr;

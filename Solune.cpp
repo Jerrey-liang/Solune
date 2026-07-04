@@ -248,6 +248,7 @@ static Location getLocationViaHttp()
         HINTERNET session = WinHttpOpen(L"Solune/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
                                          WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
         if (!session) return result;
+        WinHttpSetTimeouts(session, 5000, 5000, 5000, 5000);
 
         const INTERNET_PORT port = https ? INTERNET_DEFAULT_HTTPS_PORT : INTERNET_DEFAULT_HTTP_PORT;
         const DWORD flags = https ? WINHTTP_FLAG_SECURE : 0;
@@ -578,6 +579,21 @@ bool App::writeUserDword(const wchar_t* key, const wchar_t* value, DWORD data)
     return registry::writeDword(HKEY_USERS, fullKey.c_str(), value, data);
 }
 
+bool App::readUserDword(const wchar_t* key, const wchar_t* value, DWORD& out)
+{
+    if (!isService_)
+        return registry::readDword(HKEY_CURRENT_USER, key, value, out);
+
+    if (userSid_.empty())
+        userSid_ = getActiveUserSid();
+
+    if (userSid_.empty())
+        return registry::readDword(HKEY_CURRENT_USER, key, value, out);
+
+    const std::wstring fullKey = userSid_ + L"\\" + key;
+    return registry::readDword(HKEY_USERS, fullKey.c_str(), value, out);
+}
+
 // ============================================================================
 //  Theme application (works from both user session and Session 0)
 // ============================================================================
@@ -846,7 +862,7 @@ std::wstring App::detectWallpaperEnginePath()
 Theme App::getSystemTheme()
 {
     DWORD systemLight = 1;
-    if (registry::readDword(HKEY_CURRENT_USER,
+    if (readUserDword(
         L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
         L"SystemUsesLightTheme", systemLight) && systemLight == 1)
         return Theme::Light;
@@ -928,7 +944,21 @@ DWORD WINAPI App::serviceWorkerThread(LPVOID param)
     app->serviceStatus_.dwCurrentState = SERVICE_RUNNING;
     SetServiceStatus(app->serviceStatusHandle_, &app->serviceStatus_);
 
-    // Apply initial theme
+    // Wait for a user session before first theme apply
+    DWORD lastSessionId = 0xFFFFFFFF;
+    while (app->serviceStatus_.dwCurrentState == SERVICE_RUNNING && lastSessionId == 0xFFFFFFFF)
+    {
+        lastSessionId = getActiveUserSessionId();
+        if (lastSessionId == 0xFFFFFFFF)
+        {
+            std::wcout << L"[Service] Waiting for user session..." << std::endl;
+            Sleep(10000); // 10s
+        }
+    }
+    if (app->serviceStatus_.dwCurrentState != SERVICE_RUNNING) return 0;
+    std::wcout << L"[Service] User session " << lastSessionId << L" active." << std::endl;
+
+    // Apply initial theme now that user is logged in
     if (hasLocation)
     {
         Theme expected = localSun::expectedThemeNow(lat, lng);
@@ -942,9 +972,23 @@ DWORD WINAPI App::serviceWorkerThread(LPVOID param)
 
     while (app->serviceStatus_.dwCurrentState == SERVICE_RUNNING)
     {
+        // Monitor user session changes
+        DWORD curSessionId = getActiveUserSessionId();
+        if (curSessionId != lastSessionId)
+        {
+            lastSessionId = curSessionId;
+            app->userSid_.clear(); // force SID refresh
+            std::wcout << L"[Service] Session changed to " << curSessionId << L"." << std::endl;
+            if (hasLocation)
+            {
+                Theme expected = localSun::expectedThemeNow(lat, lng);
+                app->applyTheme(expected, true);
+                lastApplied = expected;
+            }
+        }
+
         if (!hasLocation)
         {
-            // Try to reload config in case location was updated
             hasLocation = app->loadLocationFromConfig(lat, lng);
             if (hasLocation)
                 std::wcout << L"[Service] Location cache now available." << std::endl;
@@ -956,7 +1000,6 @@ DWORD WINAPI App::serviceWorkerThread(LPVOID param)
             GetLocalTime(&lt);
             const int dayOfYear = lt.wYear * 366 + lt.wMonth * 31 + lt.wDay;
 
-            // Recalculate sun window daily or on first run
             if (dayOfYear != lastDayOfYear)
             {
                 localSun::SunWindow window;
@@ -970,21 +1013,18 @@ DWORD WINAPI App::serviceWorkerThread(LPVOID param)
 
             const long long nowSec = lt.wHour * 3600LL + lt.wMinute * 60LL + lt.wSecond;
 
-            // Check if we crossed sunrise (within last minute)
             if (sunriseSec >= 0 && nowSec >= sunriseSec && nowSec < sunriseSec + 120 && lastApplied != Theme::Light)
             {
-                std::wcout << L"[Service] Sunrise event - switching to Light theme." << std::endl;
+                std::wcout << L"[Service] Sunrise - switching to Light." << std::endl;
                 app->applyTheme(Theme::Light, true);
                 lastApplied = Theme::Light;
             }
-            // Check if we crossed sunset (within last minute)
             else if (sunsetSec >= 0 && nowSec >= sunsetSec && nowSec < sunsetSec + 120 && lastApplied != Theme::Dark)
             {
-                std::wcout << L"[Service] Sunset event - switching to Dark theme." << std::endl;
+                std::wcout << L"[Service] Sunset - switching to Dark." << std::endl;
                 app->applyTheme(Theme::Dark, true);
                 lastApplied = Theme::Dark;
             }
-            // Sync: if sun says Light but we applied Dark (or vice versa), correct
             else if (sunriseSec >= 0 && sunsetSec >= 0)
             {
                 const bool shouldBeLight = (nowSec >= sunriseSec && nowSec < sunsetSec);
@@ -1001,19 +1041,18 @@ DWORD WINAPI App::serviceWorkerThread(LPVOID param)
             }
         }
 
-        // Check WE health every 5 minutes
         static int healthCheckTicks = 0;
         if (++healthCheckTicks >= 5 && !app->weExePath_.empty())
         {
             healthCheckTicks = 0;
             if (!fileExists(app->weExePath_))
             {
-                std::wcout << L"[Service] Wallpaper Engine path gone, re-detecting..." << std::endl;
+                std::wcout << L"[Service] WE path gone, re-detecting..." << std::endl;
                 app->weExePath_ = app->detectWallpaperEnginePath();
             }
         }
 
-        Sleep(60000); // 1 minute
+        Sleep(60000);
     }
 
     // Service stopping
@@ -1123,6 +1162,29 @@ int App::run()
         StartServiceW(svc, 0, nullptr);
 
         std::wcout << L"[Install] Solune service installed and started." << std::endl;
+
+        CloseServiceHandle(svc);
+        CloseServiceHandle(scm);
+        LocalFree(argv);
+        return 0;
+    }
+
+    if (argc >= 2 && wcscmp(argv[1], L"--uninstall") == 0)
+    {
+        SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
+        if (!scm) { std::wcerr << L"[Uninstall] Failed to open SCM. Run as Administrator." << std::endl; LocalFree(argv); return 1; }
+
+        SC_HANDLE svc = OpenServiceW(scm, L"Solune", DELETE | SERVICE_STOP);
+        if (!svc) { std::wcerr << L"[Uninstall] Service not found." << std::endl; CloseServiceHandle(scm); LocalFree(argv); return 1; }
+
+        SERVICE_STATUS status{};
+        ControlService(svc, SERVICE_CONTROL_STOP, &status);
+        Sleep(1500);
+
+        if (DeleteService(svc))
+            std::wcout << L"[Uninstall] Solune service removed." << std::endl;
+        else
+            std::wcerr << L"[Uninstall] Failed to delete service. Error: " << GetLastError() << std::endl;
 
         CloseServiceHandle(svc);
         CloseServiceHandle(scm);
